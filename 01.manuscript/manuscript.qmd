@@ -526,7 +526,7 @@ The recent record shows the trade-off at its sharpest. Twelve polygons rated mod
 
 Structural predictors and moderate-or-worse severity therefore cannot both be obtained from existing public data on the same polygons. Three responses are available and the choice belongs to the analysis design rather than to this section: restrict the structural arm to the low-severity polygons where lidar exists and accept that it tests the hypothesis where the signal is weakest; run the high-severity polygons on optical and radar predictors alone; or acquire structural data directly over the twelve recent high-severity polygons, which are between 4 and 24 ha and within reach of an uncrewed aerial survey. Whichever is chosen, the field campaign is a stratified sample over an accessible subset rather than over the label population, and the resulting coverage bias is reported rather than assumed away.
 
-### Tile and polygon detail
+### Tile detail
 
 @fig-tiles shows individual lidar tiles against survey polygon outlines over northern Vancouver Island, where the recent moderate and severe records concentrate. It is drawn at tile resolution rather than as a coverage envelope because the practical question when planning a visit is whether a specific polygon has a specific tile beneath it, which a dissolved envelope conceals.
 
