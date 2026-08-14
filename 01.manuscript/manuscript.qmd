@@ -89,6 +89,20 @@ iab <- sf::st_read(file.path(derived, "adelgid-iab-polygons.geojson"),
                    quiet = TRUE)
 vi <- sf::st_read(file.path(derived, "vi-fir-agents.geojson"), quiet = TRUE)
 
+# The analysis set, built by 05.scripts/14-build-analysis-set.R: adelgid and bark
+# beetle polygons on Pacific silver fir that fall under lidar coverage acquired
+# within five years of the survey. This file is the sample; nothing below filters
+# it again.
+aset <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+n_set <- nrow(aset)
+n_set_iab <- sum(aset$PEST_SPECIES_CODE == "IAB")
+n_set_ibb <- sum(aset$PEST_SPECIES_CODE == "IBB")
+set_imbalance <- round(n_set_ibb / n_set_iab, 1)
+set_years <- range(aset$CAPTURE_YEAR)
+set_offset_med <- median(aset$year_offset)
+set_ha <- round(sum(aset$AREA_HA))
+n_set_ms <- sum(aset$PEST_SEVERITY_CODE %in% c("M", "S", "V"))
+
 host_label <- c(B = "True fir, unspecified", BA = "Pacific silver fir",
                 BG = "Grand fir", BL = "Subalpine fir")
 agent_label <- c(IAB = "Balsam woolly adelgid",
@@ -298,6 +312,14 @@ lab$`Area (ha)` <- mapply(function(a, h) area[a, h], lab$Agent, lab$Host)
 lab <- lab[order(lab$Agent, -lab$Polygons), ]
 fmt_tbl(lab)
 ```
+
+### Analysis sample
+
+Not every polygon on the shared host can enter the analysis, because the structural predictors require lidar and lidar coverage is neither universal nor contemporaneous with the survey. The sample is therefore defined by data availability and is stated before any result, so that its restrictions are read as a property of the design rather than as a post hoc exclusion.
+
+A polygon enters the analysis when it is attributed to either agent, lies on Pacific silver fir, falls within LidarBC point cloud coverage, and has a nearest lidar acquisition within five years of its survey year. That yields `r n_set` polygons, `r n_set_iab` adelgid and `r n_set_ibb` bark beetle, covering `r format(set_ha, big.mark = ",")` ha, surveyed between `r set_years[1]` and `r set_years[2]`, with a median label-to-acquisition offset of `r set_offset_med` years. The classes are imbalanced by `r set_imbalance` to 1 in favour of the bark beetle, which is considerably more even than the `r imbalance` to 1 of the unrestricted host-matched record.
+
+The cost of that definition is severity, and it is severe. Only `r n_set_ms` polygons in the analysis sample are rated moderate or worse, none of them adelgid. This is not an artefact of the filter thresholds. Across the province no adelgid polygon rated moderate or worse falls under lidar at a one, three, five or ten year offset, and only one does at twenty years, by which point stand condition cannot be assumed to have persisted. The moderate and severe adelgid record and the lidar programme do not overlap in British Columbia, and no choice of study area within the province changes that. The study accepts a low-severity sample in exchange for the structural arm, and the consequences for interpretation are set out in the limitations.
 
 The severity distribution is strongly weighted towards the two lowest classes (@tbl-severity). Only `r n_iab_ms` adelgid polygons in the study area are rated moderate or worse, too few to support the severity regression used by @Campbell_2023, and a further reason the response here is the two-class agent label.
 
@@ -624,7 +646,7 @@ Predictors are grouped into three families, spectral, structural and radar, and 
 
 Models are fitted with random forests, following @Campbell_2023, and compared at equal complexity, with hyperparameters tuned only on training-internal splits so that no evaluation fold informs model selection. Random forests are chosen for their tolerance of correlated predictors, which the three families supply in quantity, and because variable importance grouped by family gives a direct reading of where separating information lies.
 
-Because polygons cluster in space, performance is estimated by spatially blocked cross-validation rather than random partitioning, which would place spatially adjacent and often spatially overlapping polygons in both training and evaluation folds and inflate accuracy. The two classes are imbalanced by approximately `r imbalance` to 1 in favour of the bark beetle class, and resampling is applied within training folds only, never to the evaluation folds, so that reported performance refers to the observed class prevalence.
+Because polygons cluster in space, performance is estimated by spatially blocked cross-validation rather than random partitioning, which would place spatially adjacent and often spatially overlapping polygons in both training and evaluation folds and inflate accuracy. The two classes are imbalanced by `r set_imbalance` to 1 in favour of the bark beetle class, and resampling is applied within training folds only, never to the evaluation folds, so that reported performance refers to the observed class prevalence. With `r n_set` polygons the sample is small for a spatially blocked design, and the number of blocks is reported alongside every accuracy figure.
 
 ## Accuracy assessment
 
@@ -718,7 +740,9 @@ fmt_tbl(secondary)
 
 ## Limitations
 
-Several limitations apply irrespective of the result. The labels are sketch-mapped from an aircraft and their spatial accuracy is acknowledged by the custodian to be variable, so polygon boundaries are approximate and some damage is missed entirely. The adelgid class is small, `r n_ba_iab` polygons on the shared host, and only `r n_iab_ms` polygons in the study area are rated moderate or worse, so the analysis is concentrated in the lightest damage classes where any spectral or structural signal is weakest. That concentration may fall below the detection floor of moderate-resolution optical sensing altogether: @Ye_2021 report that their framework detected mountain pine beetle only where red-stage mortality occupied at least 56 percent of a Landsat pixel, and spruce beetle only above 55 percent grey-stage occupancy. A trace-rated polygon will rarely approach those fractions, so a null result for the spectral baseline would be consistent with the severity distribution rather than with the agents being spectrally inseparable, and the two explanations cannot be distinguished with these labels alone. Agent attribution in the source data is the surveyor's judgement from the air and is not independently verified on the ground, so the models can at best reproduce that judgement and any systematic error in it propagates into the results. Field confirmation addresses this only partly, because the diagnostic signs of adelgid infestation, the woolly wax masses and stem gout, occur on living and declining trees and are lost from those long dead.
+The defining limitation is the severity of the sample, and it follows from data availability rather than from choice. No adelgid polygon rated moderate or worse in British Columbia falls under lidar coverage at any useful temporal offset, so a study with a structural arm is necessarily a study of trace and light damage. The analysis is therefore concentrated in the damage classes where any spectral or structural signal is weakest, and a null result would be the expected outcome of the severity distribution as much as a statement about the sensors.
+
+Other limitations apply irrespective of the result. The labels are sketch-mapped from an aircraft and their spatial accuracy is acknowledged by the custodian to be variable, so polygon boundaries are approximate and some damage is missed entirely. That concentration may fall below the detection floor of moderate-resolution optical sensing altogether: @Ye_2021 report that their framework detected mountain pine beetle only where red-stage mortality occupied at least 56 percent of a Landsat pixel, and spruce beetle only above 55 percent grey-stage occupancy. A trace-rated polygon will rarely approach those fractions, so a null result for the spectral baseline would be consistent with the severity distribution rather than with the agents being spectrally inseparable, and the two explanations cannot be distinguished with these labels alone. Agent attribution in the source data is the surveyor's judgement from the air and is not independently verified on the ground, so the models can at best reproduce that judgement and any systematic error in it propagates into the results. Field confirmation addresses this only partly, because the diagnostic signs of adelgid infestation, the woolly wax masses and stem gout, occur on living and declining trees and are lost from those long dead.
 
 ## Detection and attribution
 
