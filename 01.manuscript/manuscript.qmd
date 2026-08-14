@@ -117,7 +117,7 @@ n_iab_ms <- sum(sev_iab[c("M", "S", "V")])
 
 Balsam woolly adelgid, *Adelges piceae* (Ratzeburg), is an introduced insect that damages and kills North American true firs of all age classes, having entered the continent in the early twentieth century through separate introductions on the east and west coasts [@Campbell_2023]. Its congener the hemlock woolly adelgid, *Adelges tsugae* Annand, is the better-studied insect, but the two behave differently on this coast. In eastern North America *A. tsugae* is invasive and lethal, and infested eastern hemlock die within four to fifteen years with within-stand mortality that can exceed ninety percent [@MacQuarrie_2025]. In western North America the same species is a separate and native lineage that "exists at low densities in forests and rarely kills trees" [@MacQuarrie_2025]. Damage to western hemlock in British Columbia has accordingly been minor, and the provincial forest health survey reflects the asymmetry directly: it carries a damage-agent code for balsam woolly adelgid and none for hemlock woolly adelgid. In British Columbia the woolly adelgid of management concern is therefore *A. piceae* on true fir, and its principal host on the coast is Pacific silver fir, *Abies amabilis* (Douglas) Forbes.
 
-Adelgid damage is structural before it is lethal. Feeding injects saliva that is toxic to the host, inhibiting bud formation and deforming stems and branches into the swellings known as gout, whose incidence varies with crown class and hardiness zone [@Guillet_2010], and the crown is killed progressively from the top down over a period of years. Western balsam bark beetle, *Dryocoetes confusus* Swaine, attacks the same firs but kills the whole crown comparatively rapidly and without that preceding deformation. On Vancouver Island both agents are recorded on Pacific silver fir by the same aerial overview survey, so a manager reading a damage map of that host cannot tell from the map which insect produced it.
+The two agents of interest here attack the same host and are recorded by the same survey, so a manager reading a damage map of Pacific silver fir cannot tell from the map which insect produced it. Their damage differs in kind, however, and that difference is the basis of this study; it is set out in the study system below.
 
 Remote detection of adelgid damage has a long record. @FRANKLIN_1995 separated damage classes on individual balsam fir from airborne multispectral imagery at 40 to 76 percent accuracy. Landsat change detection was applied to adelgid-induced hemlock decline from the late 1990s [@Royle_1997; @Bonneau_1999], and later work pushed detection towards lower infestation levels [@Williams_2017]. @Cook_2010 discriminated infested from non-infested subalpine fir at 94 percent from branch-level spectra. Most recently @Campbell_2023 mapped infestation severity in subalpine fir from satellite imagery with terrain and climate, and their result frames the present study: spectral data alone "successfully detected forest degradation" but "failed to distinguish between causal agents of change", returning a mean coefficient of determination of 0.482, while terrain and climate reached 0.746 but "lacked the ability to characterize local-scale tree damage", and only the combination reached 0.836.
 
@@ -131,9 +131,25 @@ We therefore test whether multi-sensor remote sensing can separate two insect ag
 
 # Materials and methods
 
+## Study system
+
+Balsam woolly adelgid is a small, wingless, parthenogenetic insect that feeds on the bark of true firs through a fine stylet. In North America it reproduces without males and disperses passively, as first-instar crawlers carried by wind, birds and human movement of infested material, so spread is slow, local and irregular rather than following a front. Feeding is concentrated on the bole and in the crown, and its damage is chemically mediated rather than mechanical: saliva injected during feeding is toxic to the host, inhibiting bud formation and inducing abnormal xylem. The visible consequences are swellings at nodes and branch tips, known as gouting, whose incidence varies systematically with crown class and plant hardiness zone [@Guillet_2010], followed by crown thinning and progressive dieback from the top of the tree downward. Trees may persist in this deformed and declining condition for years, and death, where it occurs, follows a long structural decline rather than preceding it.
+
+Western balsam bark beetle, *Dryocoetes confusus* Swaine, is the other agent recorded on the same host in this landscape. It is a phloem-feeding beetle that mass-attacks the bole, girdling the tree by disrupting phloem transport and introducing a pathogenic fungus. Its damage is not preceded by structural deformation of branches or by top-down crown thinning: an attacked tree retains its architecture and fades whole-crown, from green through yellow to red, over roughly one to two years. The two agents therefore differ in the geometry of the damage, deformation and progressive top-kill against retained architecture, and in its tempo, years of decline against a rapid whole-crown fade.
+
+That contrast is the mechanism this study tests. An instrument sensitive only to foliage colour observes both agents at the end state, when crowns of either kind are dead or dying and spectrally similar. An instrument sensitive to canopy geometry observes the difference in how the crown arrived there. Whether that difference survives at the coarse support of an operational survey polygon, rather than at the plot scale where it has been demonstrated [@Atkins_2020], is the open question.
+
+Pacific silver fir, *Abies amabilis*, is the host that carries both agents on the coast. It is a shade-tolerant, late-seral true fir of the wetter and cooler coastal forests, occurring from near sea level to the subalpine, and it is a commercially and ecologically significant component of the stands in which it grows. Subalpine fir, *Abies lasiocarpa*, carries western balsam bark beetle at higher elevations in the same region but is not recorded with adelgid damage here, so the analysis is confined to Pacific silver fir in order to hold host constant.
+
 ## Study area
 
-The study area is Vancouver Island and the immediately adjacent mainland coast of British Columbia, Canada, within an envelope from 128.5 to 123.0 degrees west and 48.3 to 51.0 degrees north (@fig-studyarea). Pacific silver fir occurs through the Coastal Western Hemlock and Mountain Hemlock biogeoclimatic zones that dominate the mountainous interior of the island, generally above the Coastal Douglas-fir zone of the eastern lowlands. All spatial data are handled in NAD83 / BC Albers, EPSG 3005, which is the projection of the source survey archive, and every map is drawn in that projection.
+The study area is Vancouver Island and the immediately adjacent mainland coast of British Columbia, Canada, within an envelope from 128.5 to 123.0 degrees west and 48.3 to 51.0 degrees north (@fig-studyarea). Vancouver Island is roughly 460 km long and separated from the mainland by the Strait of Georgia and Johnstone Strait. A mountain spine runs its length, rising above 2000 m in the Vancouver Island Ranges, and it divides a wet, exposed west coast from a drier eastern lowland in the rain shadow of the same mountains.
+
+Forest composition follows that gradient. The eastern lowlands carry the Coastal Douglas-fir zone, the wetter and more extensive middle elevations the Coastal Western Hemlock zone, and the upper slopes the Mountain Hemlock zone before passing into subalpine parkland. Pacific silver fir occurs through the Coastal Western Hemlock and Mountain Hemlock zones, generally above the Coastal Douglas-fir lowlands, growing with western hemlock, western redcedar and yellow cedar. Subalpine fir is largely confined to the highest elevations. The climate is maritime, with mild wet winters and comparatively dry summers, and it moderates the winter cold that constrains adelgid survival at the northern and continental edges of the insect's range.
+
+Both damage agents are recorded across this area by the provincial aerial overview survey, and their distributions overlap on the shared host without coinciding: the adelgid record concentrates at lower and middle elevations on Pacific silver fir, while western balsam bark beetle extends to higher elevations where subalpine fir dominates (@fig-studyarea).
+
+All spatial data are handled in NAD83 / BC Albers, EPSG 3005, which is the projection of the source survey archive, and every map is drawn in that projection.
 
 ```{r}
 #| label: fig-studyarea
@@ -227,7 +243,7 @@ legend("topright", inset = 0.012, bg = "white", box.col = "grey55",
 par(op)
 ```
 
-## Data sources
+## Data
 
 @tbl-inputs lists each dataset and its access terms. The custodian of the survey archive is the BC Ministry of Forests; GeoBC operates the lidar programme and the two are separate agencies.
 
@@ -250,7 +266,7 @@ fmt_tbl(inputs_tbl)
 
 Damage agents in the delivered geodatabase are recorded as three-letter codes without names. Codes were resolved against the *Forest Health Aerial Overview Survey Standards for British Columbia*, the Ministry of Forests adaptation of Canadian Forest Service FHN Report 97-1, which gives IAB for balsam woolly adelgid and IBB for western balsam bark beetle. The same document lists IAB against sub-alpine true firs, amabilis fir and grand fir, matching the host codes present in the extract. That code list contains no entry for hemlock woolly adelgid, so the absence of that species from the archive is a property of the survey design rather than of the years sampled.
 
-## Survey data
+### Survey data
 
 Damage labels are polygons from the British Columbia aerial overview survey. Surveyors sketch-map visible forest damage from a fixed-wing aircraft, recording host species, damage agent and an ordinal severity class for each polygon. A minimum of eighty percent of the province is flown annually, with gaps caused by weather and smoke.
 
@@ -309,7 +325,7 @@ legend("topleft", colnames(tt), col = c("#c1372f", "#2c6f9e"),
 par(op)
 ```
 
-## Remote sensing data
+### Remote sensing data
 
 Optical predictors are drawn from Sentinel-2 Level 2A surface reflectance and radar predictors from Sentinel-1 Ground Range Detected imagery in interferometric wide swath mode, both accessed through Google Earth Engine. Scenes are restricted to the leaf-on window of the epoch in which the adelgid record concentrates, 1 June 2019 to 30 September 2021, and optical scenes to those with less than forty percent cloud cover. Scene counts available over the study area are given in @tbl-imagery.
 
@@ -352,7 +368,7 @@ gee_status <- tryCatch({
 fmt_tbl(gee_status)
 ```
 
-## Lidar data
+### Lidar data
 
 Canopy structure is derived from the LidarBC open lidar programme, which publishes classified point clouds for public download. Coverage over the study area comprises 18,840 tiles at a nominal density of eight points per square metre (@tbl-lidar), including acquisitions in 2019 that coincide with the concentration of the adelgid survey record. Tiles are classified to ground, low point and overlap but carry no vegetation classes, so canopy height is computed as height above a ground surface interpolated from ground returns rather than read from an existing classification.
 
@@ -369,7 +385,7 @@ fmt_tbl(lidar)
 
 [PENDING. Cloud and terrain masking, compositing, radiometric terrain correction and speckle filtering of the radar stack, derivation of canopy height and structural metrics from the point clouds, and the common grid on which predictors are summarised to polygon means and dispersion statistics.]
 
-## Model design
+## Random forests
 
 The response is the two-class agent label, adelgid against bark beetle, for survey polygons on Pacific silver fir. Predictors are grouped into three families, spectral, structural and radar, and three nested models are compared: spectral only, spectral with structure, and all three families together. Survey year and terrain are carried as covariates so that their contribution is estimated rather than absorbed into the sensor terms. Models are fitted with random forests, following @Campbell_2023, and compared at equal complexity.
 
@@ -457,9 +473,9 @@ secondary <- data.frame(
 fmt_tbl(secondary)
 ```
 
-# Discussion
+# Discussion and conclusions
 
-[PENDING. Interpretation of the model comparison, in relation to the spectral attribution failure reported by @Campbell_2023 and the commission-error reduction reported by @Jones_2015.]
+[PENDING. Interpretation of the model comparison, in relation to the spectral attribution failure reported by @Campbell_2023 and the commission-error reduction reported by @Jones_2015, closing with what the result implies for verification of aerial overview survey attributions in coastal British Columbia.]
 
 ## Limitations
 
@@ -468,10 +484,6 @@ Several limitations apply irrespective of the result. The labels are sketch-mapp
 ## Detection and attribution
 
 This study evaluates attribution rather than detection, and the distinction is maintained throughout. Establishing that a canopy has changed is a different problem from identifying the agent responsible, and a model can perform well at the first while failing the second [@Campbell_2023]. Accuracy figures are therefore reported with their support, their class balance and their validation design.
-
-# Conclusions
-
-[PENDING. What the comparison shows, and what it implies for verification of aerial overview survey attributions in coastal British Columbia.]
 
 # Data availability
 
