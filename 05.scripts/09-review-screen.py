@@ -78,9 +78,22 @@ def main() -> None:
     out, reasons = [], Counter()
     for r in rows:
         text = f"{r['title']} {r['abstract']}"
+        has_abstract = bool((r["abstract"] or "").strip())
         decision, reason = "screen-pass", ""
 
-        if NOT_RESEARCH.search(r["title"] or ""):
+        # A record with no abstract cannot be screened on content: the vocabulary
+        # tests would be running on a title alone, and a title is free to omit
+        # the very words the criteria look for. Such records are routed to manual
+        # identity resolution instead of being excluded.
+        #
+        # This was the intent from the outset but was not implemented: the first
+        # version computed a no_abstract flag AFTER deciding, so the flag was
+        # cosmetic and abstract-less records were excluded on their titles. That
+        # dropped Senf et al. (2015), whose title carries no forest term, and
+        # which turned out to refute this review's central claim.
+        if not has_abstract:
+            decision, reason = "needs-identity", "no-abstract"
+        elif NOT_RESEARCH.search(r["title"] or ""):
             decision, reason = "excluded", "not-research"
         elif not FOREST.search(text):
             decision, reason = "excluded", "not-forest"
@@ -91,10 +104,7 @@ def main() -> None:
         elif not SENSING.search(text) and not Q4_ONLY.match(r["queries"]):
             decision, reason = "excluded", "no-sensing"
 
-        # A record with no abstract cannot be screened on content. It is carried
-        # forward rather than excluded, and flagged, because excluding it would
-        # silently drop older work that predates abstract indexing.
-        needs_manual = not (r["abstract"] or "").strip()
+        needs_manual = not has_abstract
 
         r = dict(r)
         r["decision"] = decision
@@ -110,22 +120,23 @@ def main() -> None:
         w.writerows(out)
 
     passed = [r for r in out if r["decision"] == "screen-pass"]
+    ident = [r for r in out if r["decision"] == "needs-identity"]
     print("SCREENING, mechanical criteria")
     print(f"  records identified                {len(rows):5d}")
     for k in ["not-research", "not-forest", "off-topic", "no-agent",
               "no-sensing"]:
         print(f"    excluded, {k:<14} {reasons[k]:5d}")
+    print(f"  routed to identity resolution     {len(ident):5d}")
     print(f"  passed to manual reading          {len(passed):5d}")
-    print(f"    of which lacking an abstract    "
-          f"{sum(1 for r in passed if r['no_abstract']):5d}")
+    print(f"  total carried forward             {len(passed) + len(ident):5d}")
 
-    print("\n  passed, by question that retrieved them")
+    print("\n  carried forward, by question that retrieved them")
     for q in ["Q1a", "Q1b", "Q2", "Q3a", "Q3b", "Q4"]:
-        n = sum(1 for r in passed if q in r["queries"].split(";"))
+        n = sum(1 for r in passed + ident if q in r["queries"].split(";"))
         print(f"    {q:4} {n:5d}")
-    print("  passed, by route")
+    print("  carried forward, by route")
     for route in ["search", "backward", "forward"]:
-        n = sum(1 for r in passed if route in r["routes"].split(";"))
+        n = sum(1 for r in passed + ident if route in r["routes"].split(";"))
         print(f"    {route:9} {n:5d}")
     print("\nwrote", OUT / "review-screened.csv")
 
