@@ -1,0 +1,23 @@
+block,query,returned
+A,balsam woolly adelgid,60
+A,Adelges piceae,60
+A,balsam woolly adelgid subalpine fir damage,46
+B,remote sensing balsam woolly adelgid,60
+B,remote sensing hemlock woolly adelgid,60
+B,satellite detection adelgid infestation forest,60
+B,hemlock woolly adelgid Landsat detection,60
+C,remote sensing bark beetle damage detection conifer,85
+C,Landsat time series insect disturbance mapping forest,60
+C,Sentinel-2 forest insect defoliation detection,60
+C,hyperspectral conifer stress detection insect,60
+D,discriminating forest damage agents remote sensing attribution,60
+D,lidar bark beetle damage detection canopy structure,60
+D,synthetic aperture radar forest insect damage detection,85
+D,lidar attribution insect damage agent classification forest,60
+D,SAR Sentinel-1 bark beetle forest damage,60
+D,distinguishing causal agents forest disturbance remote sensing,60
+E,Dryocoetes confusus subalpine fir mortality,56
+E,western balsam bark beetle British Columbia,60
+E,Abies amabilis Pacific silver fir mortality damage,60
+F,aerial overview survey forest health accuracy validation,60
+F,aerial detection survey accuracy insect damage mapping,60
