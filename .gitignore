@@ -79,3 +79,8 @@ INDEX.md
 # Office lock files
 ~$*.docx
 **/~$*
+
+# NASA ADS developer token: lives at ~/.ads/dev_key outside every git tree.
+# Ignored here as a second line of defence, per the 2026-08-14 task request.
+.ads/
+dev_key

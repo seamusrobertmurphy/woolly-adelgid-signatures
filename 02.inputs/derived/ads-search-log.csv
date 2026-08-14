@@ -1,0 +1,15 @@
+strand,research_question,kind,retrieved,total,query
+A1,1,search,38,38,"abs:""woolly adelgid"" AND (abs:""remote sensing"" OR abs:lidar OR abs:satellite OR abs:hyperspectral OR abs:radar)"
+A2,1,search,32,32,"abs:""balsam woolly adelgid"""
+A3,2,search,1814,1814,"(abs:""disturbance agent"" OR abs:""damage agent"" OR abs:attribution OR abs:discrimination) AND abs:forest AND (abs:insect OR abs:beetle OR abs:defoliation)"
+A4,3,search,842,842,"(abs:lidar OR abs:""synthetic aperture radar"" OR abs:backscatter OR abs:polarimetric) AND (abs:insect OR abs:beetle OR abs:defoliation OR abs:adelgid) AND abs:forest"
+A5,3,search,1679,1679,"(abs:lidar OR abs:""canopy structure"") AND (abs:attribution OR abs:discrimination OR abs:""disturbance agent"") AND abs:forest"
+A6,4,search,120,120,"abs:""aerial detection survey"" OR abs:""aerial overview survey"" OR (abs:""forest health"" AND abs:survey AND abs:accuracy)"
+"Senf 2015, insect-vs-insect attribution",,citations,126,126,citations(doi:10.1016/j.rse.2015.09.019)
+"Senf 2015, insect-vs-insect attribution",,references,59,59,references(doi:10.1016/j.rse.2015.09.019)
+"Campbell 2023, BWA severity mapping",,citations,3,3,citations(doi:10.3390/f14071357)
+"Campbell 2023, BWA severity mapping",,references,59,59,references(doi:10.3390/f14071357)
+"Atkins 2020, structural differentiation",,citations,49,49,citations(doi:10.1002/ecs2.3156)
+"Atkins 2020, structural differentiation",,references,84,84,references(doi:10.1002/ecs2.3156)
+"Coleman 2018, survey accuracy",,citations,51,51,citations(doi:10.1016/j.foreco.2018.08.020)
+"Coleman 2018, survey accuracy",,references,4,4,references(doi:10.1016/j.foreco.2018.08.020)
