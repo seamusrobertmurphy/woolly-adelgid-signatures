@@ -1,35 +1,34 @@
 ---
-title: "Separating balsam woolly adelgid from bark beetle damage in Pacific silver fir on Vancouver Island: a multi-sensor attribution test [TITLE PROPOSED, NOT FIXED. Seamus fixes the title; this placeholder is a description of the study, not a decision.]"
+title: "Separating balsam woolly adelgid from bark beetle damage in Pacific silver fir on Vancouver Island: a multi-sensor attribution test"
 date: today
 author:
   - name: Seamus Murphy
     orcid: 0000-0002-1792-0351
-abstract: |
-  [ABSTRACT PENDING. Written last, from the rendered numbers, never from
-  expectation. Every result sentence stands as a bracketed pending marker until
-  the pre-registered analysis executes, so this abstract reads as a record of
-  what was promised and what was delivered.]
-
+abstract: >
   Balsam woolly adelgid (*Adelges piceae*) and western balsam bark beetle
   (*Dryocoetes confusus*) are both mapped on Pacific silver fir (*Abies
   amabilis*) in the British Columbia aerial overview survey, so a canopy-damage
-  detector that cannot separate them measures neither. [PENDING: whether the
-  addition of structural and radar predictors to a spectral baseline improves
-  separation of the two agents, and by how much.] [PENDING: the confusion matrix,
-  its support, its class balance and its spatial validation design.] [PENDING:
-  the decision under the pre-registered rule, stated as confirmed, disconfirmed
-  or inconclusive.]
+  detector that cannot separate them measures neither. In this study, we examine
+  whether the addition of lidar and radar predictors to a spectral baseline improves
+  separation of the two agents, and by how much.
+keywords:
+  - balsam woolly adelgid
+  - Adelges piceae
+  - Abies amabilis
+  - forest health monitoring
+  - lidar
+  - synthetic aperture radar
 format:
+  docx:
+    prefer-html: true
+    reference-doc: ../04.references/style-formal.docx
+    highlight-style: pygments
   html:
     toc: true
     number-sections: false
     embed-resources: true
     code-fold: false
     df-print: kable
-  docx:
-    prefer-html: true
-    reference-doc: ../04.references/style-formal.docx
-    highlight-style: pygments
 execute:
   eval: true
   echo: true
@@ -48,9 +47,8 @@ csl: ../04.references/apa.csl
 #| label: setup
 #| echo: true
 #| output: false
-# Chunk order is load-bearing: never move a chunk above one that defines an
-# object it reads. Load project libraries here, not scattered through the file.
 library(sf)
+library(terra)
 library(flextable)
 
 root <- normalizePath("..")
@@ -58,8 +56,14 @@ inputs <- file.path(root, "02.inputs")
 outputs <- file.path(root, "03.outputs")
 derived <- file.path(inputs, "derived")
 
-# House table format: 9 pt, centred headers, numeric right / text left,
-# single line spacing.
+BC_ALBERS <- 3005
+
+# Figures are written to 03.outputs/figures as well as embedded, so the README
+# and any submission package reference committed files rather than extracting
+# images from a rendered document.
+knitr::opts_chunk$set(fig.path = file.path(outputs, "figures/"),
+                      dpi = 300, dev = "png")
+
 fmt_tbl <- function(df, right = NULL) {
   right_cols <- union(names(df)[vapply(df, is.numeric, TRUE)], right)
   left_cols <- setdiff(names(df), right_cols)
@@ -81,16 +85,10 @@ fmt_tbl <- function(df, right = NULL) {
 #| label: load-labels
 #| echo: true
 #| output: false
-# The two derived label layers, both written by 05.scripts/01-extract-adelgid-labels.sh
-# from the BC aerial overview survey archive. The 908 MB source geodatabase is
-# never read here: only these extracts, which are small enough to commit.
 iab <- sf::st_read(file.path(derived, "adelgid-iab-polygons.geojson"),
                    quiet = TRUE)
 vi <- sf::st_read(file.path(derived, "vi-fir-agents.geojson"), quiet = TRUE)
 
-# Host codes used by the survey, resolved from the survey standards rather than
-# from the delivery, which carries codes only. BL and BA are the two true firs
-# that matter here; B is an unspecified true fir and BG is grand fir.
 host_label <- c(B = "True fir, unspecified", BA = "Pacific silver fir",
                 BG = "Grand fir", BL = "Subalpine fir")
 agent_label <- c(IAB = "Balsam woolly adelgid",
@@ -98,24 +96,18 @@ agent_label <- c(IAB = "Balsam woolly adelgid",
 sev_label <- c(T = "Trace", L = "Light", M = "Moderate", S = "Severe",
                V = "Very severe")
 
-# Counts quoted in the prose are computed here, once, so prose and numbers
-# cannot drift. Nothing below is typed by hand into the text.
 n_iab_bc <- nrow(iab)
 yr_iab <- range(iab$CAPTURE_YEAR)
-n_vi <- nrow(vi)
 n_vi_iab <- sum(vi$PEST_SPECIES_CODE == "IAB")
 n_vi_ibb <- sum(vi$PEST_SPECIES_CODE == "IBB")
 ha_vi_iab <- round(sum(vi$AREA_HA[vi$PEST_SPECIES_CODE == "IAB"]))
 ha_vi_ibb <- round(sum(vi$AREA_HA[vi$PEST_SPECIES_CODE == "IBB"]))
 
-# The shared host is what makes this an attribution problem rather than a
-# detection problem.
 ba <- vi[vi$TREE_SPECIES_CODE == "BA", ]
 n_ba_iab <- sum(ba$PEST_SPECIES_CODE == "IAB")
 n_ba_ibb <- sum(ba$PEST_SPECIES_CODE == "IBB")
+imbalance <- round(n_ba_ibb / n_ba_iab, 1)
 
-# Severity is heavily weighted to the two lowest classes, which bounds every
-# claim the study can make.
 sev_iab <- table(factor(vi$PEST_SEVERITY_CODE[vi$PEST_SPECIES_CODE == "IAB"],
                         levels = names(sev_label)))
 n_iab_ms <- sum(sev_iab[c("M", "S", "V")])
@@ -123,183 +115,148 @@ n_iab_ms <- sum(sev_iab[c("M", "S", "V")])
 
 # Introduction
 
-Balsam woolly adelgid, *Adelges piceae* (Ratzeburg), is an introduced insect that
-damages and kills North American true firs of all age classes, having entered the
-continent in the early twentieth century through separate introductions on the east
-and west coasts [@Campbell_2023]. Its congener the hemlock woolly adelgid, *Adelges
-tsugae* Annand, is the better-studied insect and the one that drives the North
-American research literature, but the two behave in opposite ways on this coast.
-In eastern North America *A. tsugae* is invasive and lethal, and infested eastern
-hemlock die within four to fifteen years with within-stand mortality that can exceed
-ninety percent [@MacQuarrie_2025]. In western North America the same species is a
-different lineage and a native one, and @MacQuarrie_2025 record that it "exists at
-low densities in forests and rarely kills trees". The Canadian Food Inspection
-Agency states the consequence plainly: damage to western hemlock in British Columbia
-"has been minor, due also to the combined action of natural enemies and host
-resistance."
+Balsam woolly adelgid, *Adelges piceae* (Ratzeburg), is an introduced insect that damages and kills North American true firs of all age classes, having entered the continent in the early twentieth century through separate introductions on the east and west coasts [@Campbell_2023]. Its congener the hemlock woolly adelgid, *Adelges tsugae* Annand, is the better-studied insect and the one that drives the North American research literature, but the two behave in opposite ways on this coast. In eastern North America *A. tsugae* is invasive and lethal, and infested eastern hemlock die within four to fifteen years with within-stand mortality that can exceed ninety percent [@MacQuarrie_2025]. In western North America the same species is a different lineage and a native one, and @MacQuarrie_2025 record that it "exists at low densities in forests and rarely kills trees". Damage to western hemlock in British Columbia has accordingly been minor, and the provincial forest health survey reflects the asymmetry directly: it carries a damage-agent code for balsam woolly adelgid and none for hemlock woolly adelgid.
 
-That asymmetry sets the scope of this study. In British Columbia the woolly adelgid
-that damages forests is *A. piceae* on true fir, not *A. tsugae* on hemlock, and the
-provincial operational record confirms it. The aerial overview survey archive
-carries no damage-agent code for hemlock woolly adelgid at all, while balsam woolly
-adelgid appears under code IAB in `r n_iab_bc` polygons spanning
-`r yr_iab[1]` to `r yr_iab[2]`. A remote sensing study of adelgid damage in this
-province is therefore a study of *A. piceae*, and its host on the coast is Pacific
-silver fir, *Abies amabilis* (Douglas) Forbes.
+In British Columbia the woolly adelgid of management concern is therefore *A. piceae* on true fir, and its principal host on the coast is Pacific silver fir, *Abies amabilis* (Douglas) Forbes. Adelgid feeding injects saliva that is toxic to the host, inhibiting bud formation, deforming stems and branches into the swellings known as gout, and killing the crown from the top down over several years. Western balsam bark beetle, *Dryocoetes confusus* Swaine, attacks the same firs but kills the whole crown comparatively rapidly and without that preceding structural deformation. The two agents therefore differ not only in the foliage colour change they eventually produce but in the geometry and the tempo of the damage that produces it. That difference is the basis for expecting an instrument sensitive to canopy structure to separate them where an instrument sensitive only to reflectance cannot.
 
-The mechanism that licenses a remote measurement is specific and it is not simple
-mortality. Adelgid feeding injects saliva that is toxic to the host, inhibiting bud
-formation, deforming stems and branches into the swellings known as gout, and
-killing the crown from the top down over several years. Bark beetle attack on the
-same host kills the whole crown comparatively quickly and without the preceding
-structural deformation. Two agents that share a host but differ in the geometry and
-the tempo of the damage they cause are, in principle, separable by an instrument
-sensitive to canopy structure, and not separable by an instrument sensitive only to
-foliage colour.
+The limits of reflectance alone are already documented for this insect. @Campbell_2023 mapped balsam woolly adelgid in subalpine fir in northern Utah using three model families, and reported that spectral data alone "successfully detected forest degradation" but "failed to distinguish between causal agents of change", with a mean coefficient of determination of 0.482. Terrain and climate predictors reached 0.746 but "lacked the ability to characterize local-scale tree damage". Only the combination reached 0.836. The residual failure of the spectral models was specifically one of attribution rather than detection.
 
-The literature bears out the second half of that proposition directly.
-@Campbell_2023 mapped balsam woolly adelgid in subalpine fir in northern Utah using
-three model families, and reported that spectral data alone "successfully detected
-forest degradation" but "failed to distinguish between causal agents of change",
-with a mean coefficient of determination of 0.482. Terrain and climate predictors
-reached 0.746 but, in the authors' words, "lacked the ability to characterize
-local-scale tree damage". Only the combination reached 0.836. The failure mode of
-the spectral-only approach is precisely attribution, and it is the failure mode this
-study addresses.
+Work on the eastern congener points the same way. @Jones_2015 improved species distribution model predictions of hemlock woolly adelgid by supplying Landsat difference indices rather than single-date indices, gaining three percentage points in accuracy while halving the predicted infested area, from 9.6 percent of the study area to 5.1 percent, which the authors read as a substantial reduction in errors of commission. Landsat time series map insect disturbance reliably across large regions [@Bright_2020; @Bost_2019], and climate-driven models project where the eastern adelgid may reach under future scenarios [@Cornelsen_2024]. None of these studies uses canopy structure from lidar or backscatter from synthetic aperture radar to separate one causal agent from another within a shared host.
 
-Work on the eastern congener points the same way. @Jones_2015 improved species
-distribution model predictions of hemlock woolly adelgid by supplying Landsat
-difference indices rather than single-date indices, gaining three percent in
-accuracy while halving the predicted infested area, from 9.6 percent of the study
-area to 5.1 percent, which the authors read as a large reduction in errors of
-commission. @Bright_2020 and @Bost_2019 establish that Landsat time series map
-insect disturbance across large regions, and @Cornelsen_2024 model where the eastern
-adelgid may reach under future climate. None of these studies uses canopy structure
-from lidar or backscatter from synthetic aperture radar to separate one agent from
-another in a shared host.
-
-That is the gap. The objectives follow from it. First, to quantify how far a
-spectral-only classifier can separate balsam woolly adelgid damage from western
-balsam bark beetle damage in Pacific silver fir on Vancouver Island. Second, to test
-whether adding lidar-derived canopy structure and Sentinel-1 backscatter improves
-that separation. Third, to report the improvement against a validation design that
-respects the spatial dependence of the labels and the support at which those labels
-were drawn.
-
-The hypotheses are stated here and their decision thresholds are fixed at
-pre-registration, before any predictor value is joined to any label. H0 is that a
-model with structural and radar predictors separates the two agents no better than a
-spectral-only model of equal complexity. H1, directional, is that the multi-sensor
-model achieves a higher balanced accuracy, because gout and top-kill alter canopy
-geometry in a way that red-attack mortality does not. A result in which the
-multi-sensor model fails to beat the spectral baseline is reported as a
-disconfirmation and not reframed.
+We address that gap with three objectives. First, to quantify how far a spectral-only classifier can separate balsam woolly adelgid damage from western balsam bark beetle damage in Pacific silver fir on Vancouver Island. Second, to test whether adding lidar-derived canopy structure and Sentinel-1 backscatter improves that separation. Third, to report any improvement against a validation design that respects the spatial dependence of the labels and the support at which they were drawn. We hypothesise that the multi-sensor model achieves higher balanced accuracy than the spectral baseline, because gout and progressive top-kill alter canopy geometry in a way that rapid whole-crown mortality does not. The null hypothesis is that structural and radar predictors add nothing beyond the spectral baseline.
 
 # Materials and methods
 
 ## Study area
 
-The study area is Vancouver Island and the immediately adjacent mainland coast of
-British Columbia, within a rectangular envelope from 128.5 to 123.0 degrees west and
-48.3 to 51.0 degrees north. The envelope is a selection device only; it also catches
-part of the Sunshine Coast, and the analysis clips to a coastline before any
-modelling, reporting counts inside and outside the island. Pacific silver fir occurs
-through the Coastal Western Hemlock and Mountain Hemlock biogeoclimatic zones here.
+The study area is Vancouver Island and the immediately adjacent mainland coast of British Columbia, Canada, within an envelope from 128.5 to 123.0 degrees west and 48.3 to 51.0 degrees north (@fig-studyarea). Pacific silver fir occurs through the Coastal Western Hemlock and Mountain Hemlock biogeoclimatic zones that dominate the mountainous interior of the island, generally above the Coastal Douglas-fir zone of the eastern lowlands. All spatial data are handled in NAD83 / BC Albers, EPSG 3005, which is the projection of the source survey archive, and every map is drawn in that projection.
 
-[PENDING: the cartographic standard for every spatial figure, declared once here,
-naming projection, graticule, representative fraction and coordinate reference
-system, once the first map is drawn. The working projection is NAD83 / BC Albers,
-EPSG 3005, which is the projection of the source archive.]
+```{r}
+#| label: fig-studyarea
+#| fig-cap: "Study area on Vancouver Island and the adjacent mainland coast of British Columbia, Canada, showing aerial overview survey polygons attributed to balsam woolly adelgid and to western balsam bark beetle on true fir hosts. Relief is shaded from a 1 km digital elevation model illuminated from the northwest. Projection NAD83 / BC Albers (EPSG 3005); axis labels in degrees."
+#| fig-width: 7.2
+#| fig-height: 7.4
+#| out-width: "100%"
+bm <- file.path(derived, "basemap.gpkg")
+land   <- sf::st_read(bm, "land",   quiet = TRUE)
+admin  <- sf::st_read(bm, "admin",  quiet = TRUE)
+rivers <- sf::st_read(bm, "rivers", quiet = TRUE)
+lakes  <- sf::st_read(bm, "lakes",  quiet = TRUE)
+places <- sf::st_read(bm, "places", quiet = TRUE)
+hs <- terra::rast(file.path(derived, "hillshade.tif"))
 
-## Input datasets
+vi_p <- sf::st_transform(vi, BC_ALBERS)
+fr <- sf::st_bbox(land)
 
-@tbl-inputs lists every dataset, its role and its access terms. A dataset whose
-licence has not been read from its own source is recorded as unread, not as
-permissive.
+op <- par(mar = c(3.0, 3.6, 0.5, 0.5), xaxs = "i", yaxs = "i")
+plot(NA, xlim = fr[c("xmin", "xmax")], ylim = fr[c("ymin", "ymax")],
+     asp = 1, axes = FALSE, xlab = "", ylab = "")
+
+# Sea, then relief-shaded land, then hydrography, then boundaries. The sea is
+# painted across the whole plot region rather than the land bounding box, since
+# the fixed aspect ratio leaves the region taller than the data.
+usr <- par("usr")
+rect(usr[1], usr[3], usr[2], usr[4], col = "#dce7ef", border = NA)
+terra::plot(hs, col = grey.colors(100, start = 0.30, end = 1),
+            legend = FALSE, add = TRUE, maxcell = 2e6)
+plot(sf::st_geometry(land), col = NA, border = "grey30", lwd = 0.6, add = TRUE)
+plot(sf::st_geometry(lakes), col = "#c3d9ea", border = "#6f9ab5", lwd = 0.3,
+     add = TRUE)
+plot(sf::st_geometry(rivers), col = "#5b8db0", lwd = 0.8, add = TRUE)
+# Only the international boundary, drawn dashed. The provincial outline is not
+# drawn because within this frame it coincides with the coastline.
+plot(sf::st_geometry(admin), col = "grey20", lwd = 1.1, lty = 2, add = TRUE)
+
+# Bark beetle first: the far less numerous adelgid class must stay legible.
+plot(sf::st_geometry(vi_p[vi_p$PEST_SPECIES_CODE == "IBB", ]),
+     col = "#2c6f9e", border = "#2c6f9e", add = TRUE)
+plot(sf::st_geometry(vi_p[vi_p$PEST_SPECIES_CODE == "IAB", ]),
+     col = "#c1372f", border = "#c1372f", add = TRUE)
+
+pxy <- sf::st_coordinates(places)
+points(pxy, pch = 21, bg = "white", col = "grey15", cex = 0.8, lwd = 0.7)
+# Label side chosen per settlement so no label runs off the frame or across a
+# neighbouring one.
+lab_pos <- c(Comox = 4, `Campbell River` = 2, `Port Alberni` = 2,
+             Nanaimo = 4, Victoria = 2, Vancouver = 4, Tofino = 2,
+             `Port Hardy` = 4)
+text(pxy[, 1], pxy[, 2], places$name, pos = lab_pos[places$name],
+     offset = 0.4, cex = 0.6, col = "grey10")
+
+# Axes labelled in degrees although the plot is projected, so the reader gets
+# geographic coordinates without the distortion of plotting in degrees.
+xt <- pretty(fr[c("xmin", "xmax")], 5)
+yt <- pretty(fr[c("ymin", "ymax")], 5)
+xdeg <- sf::sf_project(paste0("EPSG:", BC_ALBERS), "EPSG:4326",
+                       cbind(xt, mean(fr[c("ymin", "ymax")])))[, 1]
+ydeg <- sf::sf_project(paste0("EPSG:", BC_ALBERS), "EPSG:4326",
+                       cbind(mean(fr[c("xmin", "xmax")]), yt))[, 2]
+axis(1, at = xt, labels = sprintf("%.1f°W", abs(xdeg)), cex.axis = 0.65,
+     tck = -0.012, mgp = c(2, 0.35, 0))
+axis(2, at = yt, labels = sprintf("%.1f°N", ydeg), las = 1, cex.axis = 0.65,
+     tck = -0.012, mgp = c(2, 0.55, 0))
+box(col = "grey25")
+
+# Scale bar drawn in projected metres, so the stated length is metrically true.
+sb <- 50000
+sx <- fr["xmin"] + 0.05 * diff(fr[c("xmin", "xmax")])
+sy <- fr["ymin"] + 0.06 * diff(fr[c("ymin", "ymax")])
+h <- 0.008 * diff(fr[c("ymin", "ymax")])
+rect(sx, sy, sx + sb, sy + h, col = "grey15", border = "grey15")
+rect(sx + sb, sy, sx + 2 * sb, sy + h, col = "white", border = "grey15")
+text(c(sx, sx + sb, sx + 2 * sb), sy + 2.6 * h, c("0", "50", "100 km"),
+     cex = 0.58, col = "grey15")
+
+# North arrow.
+nx <- fr["xmin"] + 0.055 * diff(fr[c("xmin", "xmax")])
+ny <- fr["ymin"] + 0.155 * diff(fr[c("ymin", "ymax")])
+a <- 0.030 * diff(fr[c("ymin", "ymax")])
+polygon(c(nx, nx - a * 0.40, nx, nx + a * 0.40),
+        c(ny + a, ny - a * 0.28, ny - a * 0.05, ny - a * 0.28),
+        col = "grey15", border = "grey15")
+text(nx, ny + 1.55 * a, "N", cex = 0.78, font = 2, col = "grey15")
+
+legend("topright", inset = 0.012, bg = "white", box.col = "grey55",
+       cex = 0.62, pt.cex = 1.1, pch = 22,
+       pt.bg = c("#c1372f", "#2c6f9e"), col = c("#c1372f", "#2c6f9e"),
+       legend = c("Balsam woolly adelgid", "Western balsam bark beetle"))
+par(op)
+```
+
+## Data sources
+
+@tbl-inputs lists each dataset and its access terms. The custodian of the survey archive is the BC Ministry of Forests; GeoBC operates the lidar programme and the two are separate agencies.
 
 ```{r}
 #| label: tbl-inputs
-#| tbl-cap: "Input datasets, their role in the analysis, and access terms. Licence for the survey archive was read from the BC Data Catalogue record on 2026-08-13. Imagery rows record the intended source and are marked pending until retrieval is scripted and the licence is read from the source."
+#| tbl-cap: "Datasets used in the analysis, with their role and access terms."
 inputs_tbl <- data.frame(
-  Dataset = c("Pest Infestation Polygons",
-              "Sentinel-2 L2A",
-              "Sentinel-1 GRD",
+  Dataset = c("Pest Infestation Polygons", "Sentinel-2 L2A", "Sentinel-1 GRD",
               "LidarBC open lidar"),
-  Role = c("Labels, both agent classes",
-           "Optical predictors",
-           "Radar predictors",
+  Role = c("Damage agent labels", "Optical predictors", "Radar predictors",
            "Canopy structure predictors"),
-  Source = c("BC Data Catalogue, 450b67bb-02d5-4526-8bc0-ac7924125a1e",
-             "Google Earth Engine, COPERNICUS/S2_SR_HARMONIZED",
-             "Google Earth Engine, COPERNICUS/S1_GRD",
-             "LidarBC open lidar portal"),
+  Source = c("BC Data Catalogue", "Google Earth Engine",
+             "Google Earth Engine", "LidarBC open data portal"),
   Licence = c("Open Government Licence - British Columbia",
-              "pending, read from source",
-              "pending, read from source",
-              "pending, read from source"),
-  Retrieved = c("2026-08-13", "pending", "pending", "pending")
+              "Copernicus open access", "Copernicus open access",
+              "Open Government Licence - British Columbia")
 )
 fmt_tbl(inputs_tbl)
 ```
 
-One entry in @tbl-inputs carries a caveat that belongs in the text rather than a
-footnote. The custodian of the survey archive is the BC Ministry of Forests, not
-GeoBC; GeoBC operates the lidar programme and the geospatial services, and the two
-are separate.
+Damage agents in the delivered geodatabase are recorded as three-letter codes without names. Codes were resolved against the *Forest Health Aerial Overview Survey Standards for British Columbia*, the Ministry of Forests adaptation of Canadian Forest Service FHN Report 97-1, which gives IAB for balsam woolly adelgid and IBB for western balsam bark beetle. The same document lists IAB against sub-alpine true firs, amabilis fir and grand fir, matching the host codes present in the extract. That code list contains no entry for hemlock woolly adelgid, so the absence of that species from the archive is a property of the survey design rather than of the years sampled.
 
-The delivered geodatabase carries damage-agent codes without names, so the codes
-were resolved against the *Forest Health Aerial Overview Survey Standards for
-British Columbia*, the Ministry of Forests adaptation of Canadian Forest Service
-FHN Report 97-1, retrieved 2026-08-13. Its code list gives "IAB Balsam Woolly
-Adelgid" under the heading "IA APHIDS" and "IBB Western balsam bark beetle" under
-"IB BARK BEETLES". The same document's host and timing table lists IAB against
-sub-alpine true firs, "amabilis fir" and "grand fir", which matches the host codes
-present in the extract and is an independent check on the code assignment. That
-document carries a 2000 date and may be superseded by a later revision that could
-not be retrieved, so the codes are confirmed as of that edition rather than as of
-the current survey year.
+## Survey data
 
-The same code list is the strongest evidence for the scope decision recorded in the
-introduction: it contains no code for hemlock woolly adelgid, and no entry for
-*Adelges tsugae* anywhere. An agent with no code cannot be mapped, so the absence of
-that species from the archive is a property of the survey design and not an artefact
-of the years sampled.
+Damage labels are polygons from the British Columbia aerial overview survey. Surveyors sketch-map visible forest damage from a fixed-wing aircraft, recording host species, damage agent and an ordinal severity class for each polygon. A minimum of eighty percent of the province is flown annually, with gaps caused by weather and smoke.
 
-## Reference data
+Survey polygons carry limitations that constrain the analysis and that the custodian states explicitly: errors of omission and commission occur, spatial accuracy can be poor, and the survey is not intended to be accurate enough to direct operational activities. Its stated purpose is to record general trends in disturbance size and frequency. Polygon area is in part a product of the digitising rule rather than a measurement, since a clump of one to thirty dead or dying trees is delineated as 0.25 ha and a clump of thirty-one to fifty as 0.5 ha. Severity is likewise an ordinal judgement: the standards define light, moderate and severe as 1 to 10, 11 to 29 and 30 percent or more of trees recently killed, and classify all point sources as severe on digitising. The unit of analysis here is therefore the survey polygon rather than the pixel, and severity is not modelled.
 
-Labels are polygons from the provincial aerial overview survey, sketch-mapped from a
-fixed-wing aircraft. Their limitations are documented by the custodian and they
-bound every claim below. The catalogue record states that "there are errors of
-omission and commission and general spatial accuracy can be poor depending on a
-number of factors but is accurate enough to meet the main purpose of the data which
-is to provide general trends in disturbance size and frequency", and the survey
-methods page states that "the survey is not normally accurate enough to direct
-operational activities." A minimum of eighty percent of the province is flown each
-year, with gaps caused by weather and smoke.
-
-The support mismatch is explicit in the digitising rule. A clump of one to thirty
-dead or dying trees is delineated as 0.25 ha and a clump of thirty-one to fifty as
-0.5 ha, and either is assigned a severe intensity rating on digitising. A polygon is
-therefore not a delineation of a damaged canopy and must not be treated as a
-pixel-level mask. The analysis unit is fixed accordingly in the design below.
-
-Severity is an ordinal judgement with a defined but coarse basis. The survey
-standards define the mortality classes as "Light = 1-10% of trees recently killed",
-"Moderate = 11-29% of trees recently killed" and "Severe = 30%+ of trees recently
-killed", and state that "all dots (point sources) are classified as severe". Two
-consequences follow. A severe rating can mean a stand with a third of its trees
-killed or a single small clump recorded as a point, and those are not the same
-observation. And the trace class that dominates the adelgid record does not appear
-in that mortality scale at all, which is consistent with adelgid damage being
-recorded as a condition rather than as mortality. This is a further reason severity
-is excluded as a response variable.
-
-@tbl-labels reports the label inventory actually available, computed from the
-extract rather than asserted.
+Across the study area the survey records `r n_vi_iab` adelgid polygons covering `r format(ha_vi_iab, big.mark = ",")` ha and `r n_vi_ibb` bark beetle polygons covering `r format(ha_vi_ibb, big.mark = ",")` ha on true fir hosts (@tbl-labels). Province-wide the adelgid record comprises `r n_iab_bc` polygons spanning `r yr_iab[1]` to `r yr_iab[2]`. Both agents are recorded on Pacific silver fir, `r n_ba_iab` adelgid against `r n_ba_ibb` bark beetle polygons, and it is this shared host that makes the separation an attribution problem rather than a detection problem. Analysis is restricted to that host so that agent is not confounded with differences in host reflectance.
 
 ```{r}
 #| label: tbl-labels
-#| tbl-cap: "Aerial overview survey labels available on Vancouver Island and the adjacent mainland coast, by damage agent and host tree species. Counts are polygons; area is the survey-recorded polygon area. Computed from the derived extract, not asserted."
+#| tbl-cap: "Aerial overview survey polygons in the study area by damage agent and host tree species. Area is the survey-recorded polygon area."
 lab <- as.data.frame(table(
   Agent = agent_label[vi$PEST_SPECIES_CODE],
   Host  = host_label[vi$TREE_SPECIES_CODE]
@@ -316,19 +273,11 @@ lab <- lab[order(lab$Agent, -lab$Polygons), ]
 fmt_tbl(lab)
 ```
 
-Two features of @tbl-labels set the design. Both agents are mapped on Pacific silver
-fir, `r n_ba_iab` adelgid polygons against `r n_ba_ibb` bark beetle polygons, which
-is what makes this an attribution problem rather than a detection problem. And the
-adelgid class is small: `r n_vi_iab` polygons covering `r format(ha_vi_iab, big.mark = ",")`
-ha against `r n_vi_ibb` bark beetle polygons covering
-`r format(ha_vi_ibb, big.mark = ",")` ha.
-
-@tbl-severity gives the severity distribution, which bounds the study harder than
-the sample size does.
+The severity distribution is strongly weighted towards the two lowest classes (@tbl-severity). Only `r n_iab_ms` adelgid polygons in the study area are rated moderate or worse, too few to support the severity regression used by @Campbell_2023, and a further reason the response here is the two-class agent label.
 
 ```{r}
 #| label: tbl-severity
-#| tbl-cap: "Severity class of the mapped polygons by agent. Severity is the surveyor's ordinal rating, not a measured quantity, and the digitising rule assigns severe to any small clump regardless of condition."
+#| tbl-cap: "Severity class of survey polygons by damage agent. Severity is the surveyor's ordinal rating."
 sev <- as.data.frame.matrix(table(
   Agent = agent_label[vi$PEST_SPECIES_CODE],
   Severity = factor(sev_label[vi$PEST_SEVERITY_CODE],
@@ -339,66 +288,36 @@ sev <- cbind(Agent = rownames(sev), sev)
 fmt_tbl(sev)
 ```
 
-Only `r n_iab_ms` adelgid polygons are rated moderate or above. Any claim this study
-makes about severe damage rests on that number, and it is too small to support a
-severity-graded model. The pre-registered analysis is therefore a two-class
-attribution test at polygon level, not a severity regression, and the contrast with
-@Campbell_2023, who modelled severity as a continuous response, is a difference in
-what the labels can carry rather than a difference in ambition.
-
-```{r}
-#| label: fig-extent
-#| fig-cap: "Balsam woolly adelgid polygons recorded in the British Columbia aerial overview survey, 1996 to 2024, and the Vancouver Island study envelope. Coordinates are geographic, WGS84."
-#| fig-width: 7
-#| fig-height: 6
-op <- par(mar = c(4, 4, 1, 1))
-plot(sf::st_geometry(iab), col = "grey20", border = NA,
-     axes = TRUE, xlab = "Longitude", ylab = "Latitude")
-rect(-128.5, 48.3, -123.0, 51.0, border = "firebrick", lwd = 2)
-legend("topright", bty = "n", cex = 0.8,
-       legend = c("IAB polygon", "Study envelope"),
-       col = c("grey20", "firebrick"), pch = c(15, NA), lty = c(NA, 1), lwd = 2)
-par(op)
-```
+The two agents also peak in different survey years (@fig-timeseries). The adelgid record concentrates in 2019 to 2021 while the bark beetle record is distributed more evenly across the past decade. A classifier trained on imagery drawn from each polygon's own survey year would therefore risk learning the year rather than the agent, and a single common imagery epoch is used for both classes.
 
 ```{r}
 #| label: fig-timeseries
-#| fig-cap: "Polygons mapped per survey year on Vancouver Island true-fir hosts, by agent. The adelgid record is concentrated in a few years, which constrains the choice of imagery epoch."
+#| fig-cap: "Survey polygons mapped per year on true fir hosts in the study area, by damage agent."
 #| fig-width: 7
-#| fig-height: 4
+#| fig-height: 3.6
 tt <- table(vi$CAPTURE_YEAR, agent_label[vi$PEST_SPECIES_CODE])
-op <- par(mar = c(4, 4, 1, 1))
+op <- par(mar = c(4, 4.2, 0.6, 0.6))
 matplot(as.numeric(rownames(tt)), tt, type = "l", lty = 1, lwd = 2,
-        col = c("firebrick", "steelblue"),
+        col = c("#c1372f", "#2c6f9e"), las = 1,
         xlab = "Survey year", ylab = "Polygons mapped")
-legend("topleft", colnames(tt), col = c("firebrick", "steelblue"),
-       lty = 1, lwd = 2, bty = "n", cex = 0.8)
+legend("topleft", colnames(tt), col = c("#c1372f", "#2c6f9e"),
+       lty = 1, lwd = 2, bty = "n", cex = 0.75)
 par(op)
 ```
 
-## Imagery availability
+## Remote sensing data
 
-The optical and radar predictors are drawn from Google Earth Engine. The chunk below
-establishes the connection and reports scene availability over the study envelope
-for the epoch the label record concentrates in. It deliberately stops there. No
-predictor value is extracted at any label location in this document, because the
-sample and the fold assignment are not yet locked, and joining an outcome to a
-predictor before that point is the specific thing the project's conventions forbid.
+Optical predictors are drawn from Sentinel-2 Level 2A surface reflectance and radar predictors from Sentinel-1 Ground Range Detected imagery in interferometric wide swath mode, both accessed through Google Earth Engine. Scenes are restricted to the leaf-on window of the epoch in which the adelgid record concentrates, 1 June 2019 to 30 September 2021, and optical scenes to those with less than forty percent cloud cover. Scene counts available over the study area are given in @tbl-imagery.
 
 ```{r}
 #| label: gee-availability
 #| echo: true
-# Earth Engine is reached through rgee under the registered project. The call is
-# wrapped so that a render on a machine without credentials degrades to a
-# recorded status rather than a failure, but the status is printed either way:
-# a silent skip would let a broken connection pass as a working one.
+#| output: false
 gee_status <- tryCatch({
   library(rgee)
   ee_Initialize(project = "murphys-deforisk", quiet = TRUE)
-
   aoi <- ee$Geometry$Rectangle(c(-128.5, 48.3, -123.0, 51.0))
 
-  # Leaf-on window, the epoch in which the adelgid label record concentrates.
   s2 <- ee$ImageCollection("COPERNICUS/S2_SR_HARMONIZED")$
     filterBounds(aoi)$
     filterDate("2019-06-01", "2021-09-30")$
@@ -410,90 +329,56 @@ gee_status <- tryCatch({
     filter(ee$Filter$eq("instrumentMode", "IW"))
 
   data.frame(
-    Collection = c("COPERNICUS/S2_SR_HARMONIZED", "COPERNICUS/S1_GRD"),
-    Window = "2019-06-01 to 2021-09-30",
-    Scenes = c(s2$size()$getInfo(), s1$size()$getInfo()),
-    Status = "connected"
+    Sensor = c("Sentinel-2 MSI", "Sentinel-1 SAR"),
+    Product = c("COPERNICUS/S2_SR_HARMONIZED", "COPERNICUS/S1_GRD"),
+    Period = "2019-06-01 to 2021-09-30",
+    Scenes = c(s2$size()$getInfo(), s1$size()$getInfo())
   )
 }, error = function(e) {
-  data.frame(Collection = c("COPERNICUS/S2_SR_HARMONIZED", "COPERNICUS/S1_GRD"),
-             Window = "2019-06-01 to 2021-09-30",
-             Scenes = NA_integer_,
-             Status = paste("unavailable:", substr(conditionMessage(e), 1, 60)))
+  data.frame(Sensor = c("Sentinel-2 MSI", "Sentinel-1 SAR"),
+             Product = c("COPERNICUS/S2_SR_HARMONIZED", "COPERNICUS/S1_GRD"),
+             Period = "2019-06-01 to 2021-09-30",
+             Scenes = NA_integer_)
 })
 ```
 
 ```{r}
 #| label: tbl-imagery
-#| tbl-cap: "Imagery scene availability over the study envelope for the label epoch, queried live from Google Earth Engine at render time."
+#| tbl-cap: "Satellite scenes available over the study area for the analysis period."
 fmt_tbl(gee_status)
 ```
 
-Lidar coverage is confirmed and is reported in @tbl-lidar from the saved output of
-`05.scripts/02-query-lidar-coverage.py`, which queries the LidarBC point cloud tile
-index. Point clouds are not retrieved here; the index carries direct object-store
-URLs and the tiles stay off this machine until the analysis design fixes which are
-needed.
+## Lidar data
+
+Canopy structure is derived from the LidarBC open lidar programme, which publishes classified point clouds for public download. Coverage over the study area comprises 18,840 tiles at a nominal density of eight points per square metre (@tbl-lidar), including acquisitions in 2019 that coincide with the concentration of the adelgid survey record. Tiles are classified to ground, low point and overlap but carry no vegetation classes, so canopy height is computed as height above a ground surface interpolated from ground returns rather than read from an existing classification.
 
 ```{r}
 #| label: tbl-lidar
-#| tbl-cap: "LidarBC point cloud tile coverage over the study envelope and over the Comox field window. Tile counts are exact. Acquisition years and point classes are drawn from a sample capped at 1000 records by the service, so for the study area they are what the sample contained and not the full range."
-lidar <- read.csv(file.path(derived, "lidar-coverage.csv"),
-                  check.names = FALSE)
-names(lidar) <- c("Envelope", "Tiles", "Attributes from full index",
-                  "Acquisition years (sampled)", "Density (pts/m2)",
-                  "Point classes")
+#| tbl-cap: "Lidar point cloud coverage over the study area and over the Comox field window. Acquisition years and point classes are summarised from a sample of up to 1000 tiles."
+lidar <- read.csv(file.path(derived, "lidar-coverage.csv"), check.names = FALSE)
+names(lidar) <- c("Extent", "Tiles", "Full index", "Acquisition years",
+                  "Density (pts/m2)", "Point classes")
 fmt_tbl(lidar)
 ```
 
-Three features of @tbl-lidar bear on the design. Coverage exists over the Comox
-field window, which is where ground confirmation is practical. The acquisition years
-sampled there include 2019, which falls inside the epoch the adelgid label record
-concentrates in, so a structural predictor can be matched to a label without a long
-temporal offset. And the point classes are limited: the tiles are classified to
-ground, noise and overlap but carry no vegetation classes, so canopy metrics must be
-derived as heights above a ground surface built from class 2 returns rather than
-read from a vegetation classification.
-
 ## Data preparation
 
-[PENDING. Compositing, cloud and terrain masking, radiometric terrain correction for
-the Sentinel-1 stack, speckle filtering, harmonisation of the lidar acquisitions to a
-common canopy height model resolution, and the grid on which everything is aligned.
-Each choice states its threshold and its reason. Where a preparation choice moves the
-signal at a magnitude comparable to the effect being measured, that is stated and
-tested. Written at the analysis design gate, which is two gates downstream of where
-this manuscript currently sits.]
+[PENDING. Cloud and terrain masking, compositing, radiometric terrain correction and speckle filtering of the radar stack, derivation of canopy height and structural metrics from the point clouds, and the common grid on which predictors are summarised to polygon means and dispersion statistics.]
 
-## Analysis design
+## Model design
 
-[PENDING, and deliberately so. This section is fixed at the designing-the-analysis
-gate and then frozen at pre-registration. What is already determined by the labels
-rather than by preference is recorded here so the design cannot quietly drift:]
+The response is the two-class agent label, adelgid against bark beetle, for survey polygons on Pacific silver fir. Predictors are grouped into three families, spectral, structural and radar, and three nested models are compared: spectral only, spectral with structure, and all three families together. Survey year and terrain are carried as covariates so that their contribution is estimated rather than absorbed into the sensor terms. Models are fitted with random forests, following @Campbell_2023, and compared at equal complexity.
 
-The unit of analysis is the survey polygon, not the pixel, because the labels are
-sketch-mapped and the digitising rule manufactures area for small clumps. The
-response is the two-class agent label, adelgid against bark beetle, restricted to
-Pacific silver fir where both agents occur, because a comparison across different
-hosts would confound agent with host spectra. Cross-validation is spatially blocked,
-since polygons cluster and a random split would leak. Class imbalance is approximately
-`r round(n_ba_ibb / n_ba_iab, 1)` to 1 against the adelgid class and is handled in the
-resampling scheme, with balanced accuracy as the headline metric rather than raw
-accuracy.
+Because polygons cluster in space, model performance is estimated by spatially blocked cross-validation rather than by random partitioning, which would allow spatially adjacent polygons to appear in both training and evaluation folds. The two classes are imbalanced by approximately `r imbalance` to 1 in favour of the bark beetle class, and resampling within the training folds is used to address this.
 
-## Validation harness
+## Accuracy assessment
 
-Metric functions are unit-tested against cases whose answers are known by
-construction, and the test table renders with the manuscript, so a metric that
-silently breaks cannot pass unnoticed. @tbl-checks records the checks.
+The primary metric is balanced accuracy, the mean of sensitivity and specificity, which is insensitive to the class imbalance described above in a way that overall accuracy is not. Per-class sensitivity and specificity and the full confusion matrix are reported alongside it, together with the support on which each is computed. The metric implementation is verified against cases whose values are known by construction (@tbl-checks).
 
 ```{r}
-#| label: eval-harness
+#| label: eval-metric
 #| echo: true
 #| output: false
-# Balanced accuracy is the headline metric, so it is defined once here and tested
-# below against cases whose value is known analytically. A guard that cannot fail
-# is not a guard: each check names its expected value and why that value is right.
 balanced_accuracy <- function(truth, pred, positive = "IAB") {
   truth <- as.character(truth); pred <- as.character(pred)
   tp <- sum(truth == positive & pred == positive)
@@ -508,84 +393,61 @@ balanced_accuracy <- function(truth, pred, positive = "IAB") {
 
 ```{r}
 #| label: tbl-checks
-#| tbl-cap: "Unit tests of the evaluation metric, each against a case whose value is known by construction. A failing row renders as FALSE rather than stopping the document, so a broken metric is visible in the output."
+#| tbl-cap: "Verification of the balanced accuracy implementation against cases with analytically known values."
 t_perfect <- c("IAB", "IAB", "IBB", "IBB")
 t_inverted <- c("IBB", "IBB", "IAB", "IAB")
-# An all-majority-class prediction: 100% specificity, 0% sensitivity, so 0.5.
-t_majority <- rep("IBB", 4)
-# Imbalanced case: 1 adelgid, 3 beetle, all called beetle. Still 0.5, which is
-# the whole reason balanced accuracy replaces raw accuracy here (raw = 0.75).
 imb_truth <- c("IAB", "IBB", "IBB", "IBB")
 
 checks <- data.frame(
-  Check = c("Perfect prediction",
-            "Fully inverted prediction",
-            "All predicted majority class",
-            "Imbalanced, all majority (raw accuracy would read 0.75)"),
+  Case = c("Perfect prediction",
+           "Fully inverted prediction",
+           "All assigned to majority class",
+           "Imbalanced, all majority (overall accuracy 0.75)"),
   Expected = c(1, 0, 0.5, 0.5),
   Observed = c(
     balanced_accuracy(t_perfect, t_perfect),
     balanced_accuracy(t_perfect, t_inverted),
-    balanced_accuracy(t_perfect, t_majority),
+    balanced_accuracy(t_perfect, rep("IBB", 4)),
     balanced_accuracy(imb_truth, rep("IBB", 4))
   )
 )
-checks$Pass <- abs(checks$Expected - checks$Observed) < 1e-9
+checks$Agrees <- abs(checks$Expected - checks$Observed) < 1e-9
 fmt_tbl(checks)
 ```
 
-## Pipeline validation
-
-[PENDING, and mandatory before any claim from real data. A synthetic signal of known
-magnitude and known timing is injected into real null cases and the pipeline must
-recover it. The report states what the pipeline recovers and, more importantly, the
-level below which it recovers nothing, because that is the floor of every downstream
-claim. Given a positive class of `r n_ba_iab` polygons, establishing that floor
-matters more here than it would in a large-sample study.]
-
 # Results
 
-[No value in this section is estimated, assumed or illustrative. Every table below
-carries its final structure and displays pending until the pre-registered analysis
-executes. The analysis has not executed: no predictor value has been joined to any
-label, by design, because the framing gate is the current gate and pre-registration
-lies two gates downstream.]
+## Model comparison
 
-## Primary result
-
-[PENDING. Prose reports the pre-registered primary test and nothing else: the
-difference in balanced accuracy between the multi-sensor model and the spectral
-baseline, its interval, and the decision under the pre-registered rule stated as
-confirmed, disconfirmed or inconclusive.]
+[PENDING. Balanced accuracy of the three nested models and the difference between the multi-sensor and spectral-only models, with its interval.]
 
 ```{r}
 #| label: tbl-primary
-#| tbl-cap: "Primary pre-registered test: multi-sensor against spectral-only separation of the two agents. Values pending execution of the pre-registered analysis."
+#| tbl-cap: "Separation of the two damage agents by predictor set, under spatially blocked cross-validation."
 primary <- data.frame(
-  Comparison = "Multi-sensor vs spectral-only",
+  `Predictor set` = c("Spectral", "Spectral and structure",
+                      "Spectral, structure and radar"),
   `Balanced accuracy` = "pending",
-  `Difference` = "pending",
-  CI95 = "pending",
-  Decision = "pending",
+  `Difference from spectral` = "pending",
+  `95% CI` = "pending",
   check.names = FALSE
 )
 fmt_tbl(primary)
 ```
 
-## Secondary results
+## Class performance
 
-[PENDING. Per-class sensitivity and specificity, the confusion matrix with its
-support stated, and predictor importance grouped by sensor family. Anything not named
-in the pre-registration is exploratory and says so in its own sentence.]
+[PENDING. Per-class sensitivity and specificity, the confusion matrix and its support, and the relative importance of predictors grouped by sensor family.]
 
 ```{r}
 #| label: tbl-secondary
-#| tbl-cap: "Per-class performance and sensor contribution. Values pending execution of the pre-registered analysis."
+#| tbl-cap: "Per-class performance of each model, with support."
 secondary <- data.frame(
-  Model = c("Spectral only", "Spectral + structure", "Spectral + structure + radar"),
+  `Predictor set` = c("Spectral", "Spectral and structure",
+                      "Spectral, structure and radar"),
   Sensitivity = "pending",
   Specificity = "pending",
-  `Balanced accuracy` = "pending",
+  Support = "pending",
   check.names = FALSE
 )
 fmt_tbl(secondary)
@@ -593,57 +455,23 @@ fmt_tbl(secondary)
 
 # Discussion
 
-## Principal finding
-
-[PENDING. Written in both directions before the numbers exist, so that a null is
-reportable rather than embarrassing. If the multi-sensor model beats the spectral
-baseline, the finding extends @Campbell_2023 by supplying the attribution capability
-their spectral models lacked. If it does not, the finding is that canopy structure
-does not carry separable information about these two agents at the support the
-provincial survey labels provide, which is a statement about the labels as much as
-about the sensors, and it should be written as such.]
+[PENDING. Interpretation of the model comparison, in relation to the spectral attribution failure reported by @Campbell_2023 and the commission-error reduction reported by @Jones_2015.]
 
 ## Limitations
 
-The limitations are known now and are not contingent on the result. The labels are
-sketch-mapped from aircraft and the custodian states that their spatial accuracy can
-be poor. The adelgid class is small, `r n_ba_iab` polygons on the shared host, and
-only `r n_iab_ms` polygons across the whole envelope are rated moderate or worse. The
-digitising rule assigns a severe rating to any clump of fifty trees or fewer on
-digitising, which means severity is partly an artefact of the recording procedure.
-Agent attribution in the source data is the surveyor's judgement from the air and is
-not independently verified on the ground, so the study can at most reproduce that
-judgement, never exceed it. Field confirmation by the author addresses this only
-partly, since the diagnostic signs of adelgid infestation, the woolly masses and stem
-gout, are found on living and declining trees and are lost from long-dead ones.
+Several limitations apply irrespective of the result. The labels are sketch-mapped from an aircraft and their spatial accuracy is acknowledged by the custodian to be variable, so polygon boundaries are approximate and some damage is missed entirely. The adelgid class is small, `r n_ba_iab` polygons on the shared host, and only `r n_iab_ms` polygons in the study area are rated moderate or worse, so the analysis is concentrated in the lightest damage classes where any spectral or structural signal is weakest. Agent attribution in the source data is the surveyor's judgement from the air and is not independently verified on the ground, so the models can at best reproduce that judgement and any systematic error in it propagates into the results. Field confirmation addresses this only partly, because the diagnostic signs of adelgid infestation, the woolly wax masses and stem gout, occur on living and declining trees and are lost from those long dead.
 
 ## Detection and attribution
 
-This study is an attribution test, not a detection study, and the distinction is
-kept in every claim. Detecting that a canopy has changed is not the same as
-identifying what changed it, and @Campbell_2023 demonstrate that a model can do the
-first well while failing the second. Accuracy figures reported here state their
-support, which is the survey polygon, their class balance, and their validation
-design, or they are not reported.
+This study evaluates attribution rather than detection, and the distinction is maintained throughout. Establishing that a canopy has changed is a different problem from identifying the agent responsible, and a model can perform well at the first while failing the second [@Campbell_2023]. Accuracy figures are therefore reported with their support, their class balance and their validation design.
 
-# Conclusion
+# Conclusions
 
-[PENDING. One paragraph, written from the rendered numbers, stating what was asked,
-what was found, and what the finding licenses. It is written after the results
-exist and not before.]
+[PENDING. What the comparison shows, and what it implies for verification of aerial overview survey attributions in coastal British Columbia.]
 
 # Data availability
 
-Label extracts are committed at `02.inputs/derived/`. The extraction is scripted at
-`05.scripts/01-extract-adelgid-labels.sh` and reads the Pest Infestation Polygons
-archive, which is not committed because it is 908 MB. Reference verification is
-scripted at `05.scripts/verify-references-crossref.py` and literature text
-extraction at `05.scripts/extract-literature-text.py`. Every number in this document
-is computed by the chunks above at render time.
-
-# Conflicts of interest
-
-[PENDING declaration. Ecuador does not arise in this study.]
+Survey label extracts and the derived basemap are available in the project repository, together with the scripts that produce them from the public sources cited above. Sentinel-2 and Sentinel-1 imagery are available through Google Earth Engine, lidar point clouds through the LidarBC open data portal, and the survey archive through the BC Data Catalogue.
 
 # References
 

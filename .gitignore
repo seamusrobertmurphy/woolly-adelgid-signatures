@@ -74,6 +74,7 @@ INDEX.md
 .claude*
 CLAUDE.local.md
 **/CLAUDE.md
+INDEX.md
 
 # Office lock files
 ~$*.docx
