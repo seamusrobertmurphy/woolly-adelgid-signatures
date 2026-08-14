@@ -42,6 +42,13 @@ DOIS = {
     "10.1016/j.rse.2019.111264": "Dual-wavelength terrestrial lidar, early Ips detection",
     "10.1002/ecs2.3156": "Multidimensional structural characterisation of moderate disturbance",
     "10.2478/forj-2024-0022": "Recent review of remote sensing forest health assessment",
+    "10.1016/j.foreco.2018.08.020": "Aerial detection survey accuracy; agent specificity degrades",
+    "10.3390/rs12081304": "Simulated GEDI lidar detects HWA understorey structural change",
+    "10.3390/f11050529": "Satellite evaluation of IDS severity estimates, 35-78% by method",
+    "10.3390/rs10081184": "Independent accuracy assessment of IDS against Landsat/MODIS products",
+    "10.1023/a:1010021629127": "Satellite classification of HWA-infested hemlock health, 1999",
+    "10.1016/j.rse.2016.12.005": "Low-level HWA detection via Landsat partition modelling",
+    "10.1093/forestscience/43.3.327": "Landsat TM change detection of hemlock health, 1997",
 }
 
 
