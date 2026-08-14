@@ -139,9 +139,11 @@ We hypothesise that the multi-sensor model achieves higher balanced accuracy tha
 
 Balsam woolly adelgid is a small, wingless, parthenogenetic insect that feeds on the bark of true firs through a fine stylet. In North America it reproduces without males and disperses passively, as first-instar crawlers carried by wind, birds and human movement of infested material, so spread is slow, local and irregular rather than following a front. Feeding is concentrated on the bole and in the crown, and its damage is chemically mediated rather than mechanical: saliva injected during feeding is toxic to the host, inhibiting bud formation and inducing abnormal xylem. The visible consequences are swellings at nodes and branch tips, known as gouting, whose incidence varies systematically with crown class and plant hardiness zone [@Guillet_2010], followed by crown thinning and progressive dieback from the top of the tree downward. Trees may persist in this deformed and declining condition for years, and death, where it occurs, follows a long structural decline rather than preceding it.
 
-Western balsam bark beetle, *Dryocoetes confusus* Swaine, is the other agent recorded on the same host in this landscape. It is a phloem-feeding beetle that mass-attacks the bole, girdling the tree by disrupting phloem transport and introducing a pathogenic fungus. Its damage is not preceded by structural deformation of branches or by top-down crown thinning: an attacked tree retains its architecture and fades whole-crown, from green through yellow to red, over roughly one to two years. The two agents therefore differ in the geometry of the damage, deformation and progressive top-kill against retained architecture, and in its tempo, years of decline against a rapid whole-crown fade.
+Western balsam bark beetle, *Dryocoetes confusus* Swaine, is the other agent recorded on the same host in this landscape. It is a phloem-feeding beetle that mass-attacks the bole, girdling the tree by disrupting phloem transport and introducing a pathogenic fungus. Its damage is not preceded by structural deformation of branches or by top-down crown thinning: an attacked tree retains its architecture and fades whole-crown, from green through yellow to red, over roughly one to two years.
 
-That contrast is the mechanism this study tests. An instrument sensitive only to foliage colour observes both agents at the end state, when crowns of either kind are dead or dying and spectrally similar. An instrument sensitive to canopy geometry observes the difference in how the crown arrived there. Whether that difference survives at the coarse support of an operational survey polygon, rather than at the plot scale where it has been demonstrated [@Atkins_2020], is the open question.
+The beetle does not act alone, and the comparison class is defined accordingly. On true fir it operates within a mortality complex alongside *Armillaria* root disease, the associated fungus *Ophiostoma dryocoetidis* and, at some sites, spruce beetle. Interactions of this kind alter canopy and stand characteristics jointly rather than separately: @Klutsch_2014 found on a single ponderosa pine host that "fuel bed and canopy characteristics were dependent on the presence of both dwarf mistletoe and mountain pine beetle-caused mortality". The class contrasted with the adelgid here is therefore best understood as bark-beetle-associated mortality rather than as the effect of one insect in isolation, and it is described that way throughout. This is a property of the system, not of the labels, and it would persist under any labelling scheme. The two agents therefore differ in the geometry of the damage, deformation and progressive top-kill against retained architecture, and in its tempo, years of decline against a rapid whole-crown fade.
+
+That contrast is the mechanism this study tests. An instrument sensitive only to foliage colour observes both agents at the end state, when crowns of either kind are dead or dying and spectrally similar. An instrument sensitive to canopy geometry observes the difference in how the crown arrived there. Whether that difference survives at the coarse support of an operational survey polygon, rather than at the plot scale where it has been examined, is the open question. The plot-scale evidence is itself mixed, and both sides of it concern the congener. @Atkins_2020 found that insect and pathogen infestation altered canopy arrangement and complexity, and @Alveshere_2025 report that hemlock woolly adelgid infestation influences canopy structural complexity, while @Choi_2023 found for press disturbances including the same insect that "the impact ... on other dimensions of canopy structure could not be clearly detected, likely because of compensatory growth". A structural signal is therefore plausible but not established, and compensatory growth is a specific mechanism by which it could be absent.
 
 Pacific silver fir, *Abies amabilis*, is the host that carries both agents on the coast. It is a shade-tolerant, late-seral true fir of the wetter and cooler coastal forests, occurring from near sea level to the subalpine, and it is a commercially and ecologically significant component of the stands in which it grows. Subalpine fir, *Abies lasiocarpa*, carries western balsam bark beetle at higher elevations in the same region but is not recorded with adelgid damage here, so the analysis is confined to Pacific silver fir in order to hold host constant.
 
@@ -384,6 +386,112 @@ names(lidar) <- c("Extent", "Tiles", "Full index", "Acquisition years",
                   "Density (pts/m2)", "Point classes")
 fmt_tbl(lidar)
 ```
+
+### Field site selection
+
+Ground confirmation requires polygons that carry both an adelgid label and lidar coverage, and that can be reached. @fig-fieldsites shows where those conditions coincide, and the answer constrains the design rather than merely illustrating it.
+
+```{r}
+#| label: fig-fieldsites
+#| fig-cap: "Candidate field sites on Vancouver Island. Points are aerial overview survey polygons attributed to balsam woolly adelgid on Pacific silver fir, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Rings mark 50, 100 and 150 km straight-line distance from Comox. Projection NAD83 / BC Albers (EPSG 3005)."
+#| fig-width: 7.2
+#| fig-height: 7.4
+#| out-width: "100%"
+cand <- read.csv(file.path(derived, "field-site-candidates.csv"))
+cand_sf <- sf::st_transform(
+  sf::st_as_sf(cand, coords = c("lon", "lat"), crs = 4326), BC_ALBERS)
+lidar_env <- sf::st_read(file.path(derived, "lidar-coverage-dissolved.gpkg"),
+                         quiet = TRUE)
+acc <- sf::st_read(file.path(derived, "field-access-places.gpkg"), quiet = TRUE)
+comox <- sf::st_transform(
+  sf::st_sfc(sf::st_point(c(-124.928, 49.673)), crs = 4326), BC_ALBERS)
+
+fr <- sf::st_bbox(land)
+op <- par(mar = c(3.0, 3.6, 0.5, 0.5), xaxs = "i", yaxs = "i")
+plot(NA, xlim = fr[c("xmin", "xmax")], ylim = fr[c("ymin", "ymax")],
+     asp = 1, axes = FALSE, xlab = "", ylab = "")
+usr <- par("usr")
+rect(usr[1], usr[3], usr[2], usr[4], col = "#dce7ef", border = NA)
+terra::plot(hs, col = grey.colors(100, start = 0.45, end = 1), legend = FALSE,
+            add = TRUE, maxcell = 2e6)
+plot(sf::st_geometry(land), col = NA, border = "grey35", lwd = 0.6, add = TRUE)
+plot(sf::st_geometry(lakes), col = "#c3d9ea", border = NA, add = TRUE)
+plot(sf::st_geometry(rivers), col = "#7ba6c4", lwd = 0.6, add = TRUE)
+
+# Lidar coverage envelope, drawn under the sites so the sites stay readable.
+plot(sf::st_geometry(lidar_env), col = "#b9d9b0", border = "#7fae74",
+     lwd = 0.3, add = TRUE)
+
+# Distance rings from Comox. Straight line, not road distance.
+for (d in c(50, 100, 150)) {
+  plot(sf::st_geometry(sf::st_buffer(comox, d * 1000)), col = NA,
+       border = "grey30", lty = 3, lwd = 0.8, add = TRUE)
+}
+
+sev_col <- c(T = "#f0c987", L = "#e08a45", M = "#c1372f", S = "#7d1d18")
+cxy <- sf::st_coordinates(cand_sf)
+cex_by_area <- 0.5 + 1.5 * sqrt(cand$area_ha / max(cand$area_ha))
+has_lidar <- cand$lidar_tiles > 0
+points(cxy[!has_lidar, , drop = FALSE], pch = 1, lwd = 0.9,
+       col = sev_col[cand$severity[!has_lidar]], cex = cex_by_area[!has_lidar])
+points(cxy[has_lidar, , drop = FALSE], pch = 16,
+       col = sev_col[cand$severity[has_lidar]], cex = cex_by_area[has_lidar])
+
+axy <- sf::st_coordinates(acc)
+points(axy, pch = 22, bg = "white", col = "grey15", cex = 0.8, lwd = 0.7)
+# Comox is drawn separately as the field base, so its label is suppressed here
+# and Courtenay is thrown left to clear the diamond.
+side <- ifelse(acc$name == "Courtenay", 2, 4)
+keep <- acc$name != "Comox"
+text(axy[keep, 1], axy[keep, 2], acc$name[keep], pos = side[keep],
+     offset = 0.35, cex = 0.55, col = "grey10")
+points(sf::st_coordinates(comox), pch = 23, bg = "black", col = "black",
+       cex = 1.2)
+text(sf::st_coordinates(comox)[1], sf::st_coordinates(comox)[2], "Comox",
+     pos = 4, offset = 0.45, cex = 0.6, font = 2, col = "black")
+
+xt <- pretty(fr[c("xmin", "xmax")], 5); yt <- pretty(fr[c("ymin", "ymax")], 5)
+xdeg <- sf::sf_project(paste0("EPSG:", BC_ALBERS), "EPSG:4326",
+                       cbind(xt, mean(fr[c("ymin", "ymax")])))[, 1]
+ydeg <- sf::sf_project(paste0("EPSG:", BC_ALBERS), "EPSG:4326",
+                       cbind(mean(fr[c("xmin", "xmax")]), yt))[, 2]
+axis(1, at = xt, labels = sprintf("%.1f°W", abs(xdeg)), cex.axis = 0.65,
+     tck = -0.012, mgp = c(2, 0.35, 0))
+axis(2, at = yt, labels = sprintf("%.1f°N", ydeg), las = 1, cex.axis = 0.65,
+     tck = -0.012, mgp = c(2, 0.55, 0))
+box(col = "grey25")
+
+sb <- 50000
+sx <- fr["xmin"] + 0.05 * diff(fr[c("xmin", "xmax")])
+sy <- fr["ymin"] + 0.06 * diff(fr[c("ymin", "ymax")])
+h <- 0.008 * diff(fr[c("ymin", "ymax")])
+rect(sx, sy, sx + sb, sy + h, col = "grey15", border = "grey15")
+rect(sx + sb, sy, sx + 2 * sb, sy + h, col = "white", border = "grey15")
+text(c(sx, sx + sb, sx + 2 * sb), sy + 2.6 * h, c("0", "50", "100 km"),
+     cex = 0.58, col = "grey15")
+nx <- fr["xmin"] + 0.055 * diff(fr[c("xmin", "xmax")])
+ny <- fr["ymin"] + 0.155 * diff(fr[c("ymin", "ymax")])
+a <- 0.030 * diff(fr[c("ymin", "ymax")])
+polygon(c(nx, nx - a * 0.40, nx, nx + a * 0.40),
+        c(ny + a, ny - a * 0.28, ny - a * 0.05, ny - a * 0.28),
+        col = "grey15", border = "grey15")
+text(nx, ny + 1.55 * a, "N", cex = 0.78, font = 2, col = "grey15")
+
+legend("topright", inset = 0.012, bg = "white", box.col = "grey55", cex = 0.58,
+       pch = c(16, 1, 22, 23, NA), pt.bg = c(NA, NA, "white", "black", NA),
+       col = c("grey25", "grey25", "grey15", "black", "#7fae74"),
+       lty = c(NA, NA, NA, NA, 1), lwd = c(NA, NA, NA, NA, 6),
+       legend = c("Adelgid polygon, lidar", "Adelgid polygon, no lidar",
+                  "Settlement", "Comox", "Lidar coverage"))
+legend("bottomright", inset = 0.012, bg = "white", box.col = "grey55",
+       cex = 0.58, pch = 16, col = sev_col,
+       legend = c("Trace", "Light", "Moderate", "Severe"), title = "Severity")
+par(op)
+```
+
+Three facts follow from @fig-fieldsites and they bear directly on what is feasible. Of the `r nrow(cand)` adelgid polygons on Pacific silver fir, `r sum(cand$lidar_tiles > 0)` fall within lidar coverage. None lies within 50 km of Comox; the nearest is `r min(cand$km_from_comox)` km distant. And none of the `r sum(cand$severity %in% c("M","S"))` polygons rated moderate or severe carries any lidar coverage at all, the nearest being `r min(cand$km_from_comox[cand$severity %in% c("M","S")])` km away.
+
+A severity floor set at moderate and above, which the survey's own class definitions would justify, is therefore incompatible with the structural arm of the study as the data currently stand. The design resolves this by treating the field campaign as a stratified sample over the accessible subset rather than over the full label set, and by reporting the resulting coverage bias explicitly rather than presenting the field plots as representative of the population of adelgid polygons.
 
 ## Data preparation
 
