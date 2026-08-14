@@ -393,11 +393,19 @@ Ground confirmation requires polygons that carry both an adelgid label and lidar
 
 ```{r}
 #| label: fig-fieldsites
-#| fig-cap: "Candidate field sites on Vancouver Island. Points are aerial overview survey polygons attributed to balsam woolly adelgid on Pacific silver fir, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Rings mark 50, 100 and 150 km straight-line distance from Comox. Projection NAD83 / BC Albers (EPSG 3005)."
+#| fig-cap: "Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Rings mark 50, 100 and 150 km from Comox and are shown for travel planning only, not as a selection criterion. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005)."
 #| fig-width: 7.2
 #| fig-height: 7.4
 #| out-width: "100%"
-cand <- read.csv(file.path(derived, "field-site-candidates.csv"))
+# Province-wide candidates, not island-only and not filtered by distance from
+# Comox: per the 2026-08-14 decision, lidar and severity availability set the
+# study's scope and location rather than proximity to a field base. The frame
+# below is coastal, so the two mainland interior records fall outside it and are
+# reported in the text instead.
+cand <- read.csv(file.path(derived, "site-candidates-province.csv"))
+cand$severity <- cand$severity_code
+cand <- cand[cand$lon > -128.5 & cand$lon < -123.0 &
+             cand$lat > 48.3 & cand$lat < 51.2, ]
 cand_sf <- sf::st_transform(
   sf::st_as_sf(cand, coords = c("lon", "lat"), crs = 4326), BC_ALBERS)
 lidar_env <- sf::st_read(file.path(derived, "lidar-coverage-dissolved.gpkg"),
@@ -428,7 +436,8 @@ for (d in c(50, 100, 150)) {
        border = "grey30", lty = 3, lwd = 0.8, add = TRUE)
 }
 
-sev_col <- c(T = "#f0c987", L = "#e08a45", M = "#c1372f", S = "#7d1d18")
+sev_col <- c(T = "#f0c987", L = "#e08a45", M = "#c1372f", S = "#7d1d18",
+             V = "#4a0f0c")
 cxy <- sf::st_coordinates(cand_sf)
 cex_by_area <- 0.5 + 1.5 * sqrt(cand$area_ha / max(cand$area_ha))
 has_lidar <- cand$lidar_tiles > 0
@@ -489,9 +498,109 @@ legend("bottomright", inset = 0.012, bg = "white", box.col = "grey55",
 par(op)
 ```
 
-Three facts follow from @fig-fieldsites and they bear directly on what is feasible. Of the `r nrow(cand)` adelgid polygons on Pacific silver fir, `r sum(cand$lidar_tiles > 0)` fall within lidar coverage. None lies within 50 km of Comox; the nearest is `r min(cand$km_from_comox)` km distant. And none of the `r sum(cand$severity %in% c("M","S"))` polygons rated moderate or severe carries any lidar coverage at all, the nearest being `r min(cand$km_from_comox[cand$severity %in% c("M","S")])` km away.
+@fig-fieldsites exposes a trade-off between severity and structural data that is not resolvable by widening the search area, and it constrains the study rather than merely describing it. Across the province the survey records 267 adelgid polygons, of which 89 fall within lidar coverage and 25 are rated moderate or worse. Only nine polygons satisfy both conditions, and eight of those were surveyed in 2007 or 2008 against lidar acquired between 2023 and 2025, an offset of twelve to seventeen years over which stand condition cannot be assumed constant.
 
-A severity floor set at moderate and above, which the survey's own class definitions would justify, is therefore incompatible with the structural arm of the study as the data currently stand. The design resolves this by treating the field campaign as a stratified sample over the accessible subset rather than over the full label set, and by reporting the resulting coverage bias explicitly rather than presenting the field plots as representative of the population of adelgid polygons.
+The recent record shows the trade-off at its sharpest. Twelve polygons rated moderate or severe were surveyed from 2019 onward, all of them on Pacific silver fir, and none has any lidar coverage. Ten lie on northern Vancouver Island between Sayward and the Nimpkish valley and two on the mainland coast. Conversely, 43 polygons combine lidar coverage, a label-to-acquisition offset of three years or less, and the shared host, but 37 of those are rated trace and 10 light, with a single moderate polygon among them.
+
+Structural predictors and moderate-or-worse severity therefore cannot both be obtained from existing public data on the same polygons. Three responses are available and the choice belongs to the analysis design rather than to this section: restrict the structural arm to the low-severity polygons where lidar exists and accept that it tests the hypothesis where the signal is weakest; run the high-severity polygons on optical and radar predictors alone; or acquire structural data directly over the twelve recent high-severity polygons, which are between 4 and 24 ha and within reach of an uncrewed aerial survey. Whichever is chosen, the field campaign is a stratified sample over an accessible subset rather than over the label population, and the resulting coverage bias is reported rather than assumed away.
+
+### Tile and polygon detail
+
+@fig-tiles shows individual lidar tiles against survey polygon outlines over northern Vancouver Island, where the recent moderate and severe records concentrate. It is drawn at tile resolution rather than as a coverage envelope because the practical question when planning a visit is whether a specific polygon has a specific tile beneath it, which a dissolved envelope conceals.
+
+```{r}
+#| label: fig-tiles
+#| fig-cap: "Lidar tiles and survey polygons over northern Vancouver Island. Grey squares are individual LidarBC point cloud tiles, shaded by acquisition year. Polygon outlines are aerial overview survey records: red for balsam woolly adelgid, blue for western balsam bark beetle, with adelgid polygons rated moderate or worse drawn heavier. Projection NAD83 / BC Albers (EPSG 3005)."
+#| fig-width: 7.2
+#| fig-height: 6.4
+#| out-width: "100%"
+det <- c(xmin = -126.4, ymin = 50.05, xmax = -124.2, ymax = 50.95)
+
+tiles <- sf::st_read(file.path(derived, "lidar-tiles.geojson"), quiet = TRUE)
+tiles_d <- sf::st_transform(
+  suppressWarnings(sf::st_crop(sf::st_make_valid(tiles), det)), BC_ALBERS)
+iab_d <- sf::st_transform(
+  suppressWarnings(sf::st_crop(sf::st_make_valid(iab), det)), BC_ALBERS)
+vi_d <- sf::st_transform(
+  suppressWarnings(sf::st_crop(sf::st_make_valid(vi), det)), BC_ALBERS)
+land_d <- suppressWarnings(sf::st_crop(
+  land, sf::st_bbox(sf::st_transform(
+    sf::st_as_sfc(sf::st_bbox(det, crs = 4326)), BC_ALBERS))))
+acc_d <- sf::st_read(file.path(derived, "field-access-places.gpkg"),
+                     quiet = TRUE)
+
+fr <- sf::st_bbox(sf::st_transform(sf::st_as_sfc(sf::st_bbox(det, crs = 4326)),
+                                   BC_ALBERS))
+op <- par(mar = c(3.0, 3.6, 0.5, 0.5), xaxs = "i", yaxs = "i")
+plot(NA, xlim = fr[c("xmin", "xmax")], ylim = fr[c("ymin", "ymax")],
+     asp = 1, axes = FALSE, xlab = "", ylab = "")
+usr <- par("usr")
+rect(usr[1], usr[3], usr[2], usr[4], col = "#dce7ef", border = NA)
+terra::plot(hs, col = grey.colors(100, start = 0.55, end = 1), legend = FALSE,
+            add = TRUE, maxcell = 3e6)
+plot(sf::st_geometry(land_d), col = NA, border = "grey35", lwd = 0.7,
+     add = TRUE)
+
+# Tiles, shaded by acquisition year so a polygon's temporal match is legible.
+yrs <- sort(unique(tiles_d$year))
+pal <- setNames(grey.colors(max(length(yrs), 2), start = 0.55, end = 0.88),
+                yrs)
+plot(sf::st_geometry(tiles_d), col = pal[as.character(tiles_d$year)],
+     border = "grey60", lwd = 0.15, add = TRUE)
+
+plot(sf::st_geometry(vi_d[vi_d$PEST_SPECIES_CODE == "IBB", ]), col = NA,
+     border = "#2c6f9e", lwd = 0.7, add = TRUE)
+plot(sf::st_geometry(iab_d), col = NA, border = "#c1372f", lwd = 1.0,
+     add = TRUE)
+hi <- iab_d[iab_d$PEST_SEVERITY_CODE %in% c("M", "S", "V"), ]
+if (nrow(hi)) plot(sf::st_geometry(hi), col = "#c1372f66",
+                   border = "#7d1d18", lwd = 2.0, add = TRUE)
+
+ap <- sf::st_coordinates(acc_d)
+inb <- ap[, 1] > fr["xmin"] & ap[, 1] < fr["xmax"] &
+       ap[, 2] > fr["ymin"] & ap[, 2] < fr["ymax"]
+if (any(inb)) {
+  points(ap[inb, , drop = FALSE], pch = 22, bg = "white", col = "grey15",
+         cex = 0.9, lwd = 0.8)
+  text(ap[inb, 1], ap[inb, 2], acc_d$name[inb], pos = 4, offset = 0.4,
+       cex = 0.62, col = "grey10")
+}
+
+xt <- pretty(fr[c("xmin", "xmax")], 4); yt <- pretty(fr[c("ymin", "ymax")], 4)
+xdeg <- sf::sf_project(paste0("EPSG:", BC_ALBERS), "EPSG:4326",
+                       cbind(xt, mean(fr[c("ymin", "ymax")])))[, 1]
+ydeg <- sf::sf_project(paste0("EPSG:", BC_ALBERS), "EPSG:4326",
+                       cbind(mean(fr[c("xmin", "xmax")]), yt))[, 2]
+axis(1, at = xt, labels = sprintf("%.1f°W", abs(xdeg)), cex.axis = 0.65,
+     tck = -0.012, mgp = c(2, 0.35, 0))
+axis(2, at = yt, labels = sprintf("%.1f°N", ydeg), las = 1, cex.axis = 0.65,
+     tck = -0.012, mgp = c(2, 0.55, 0))
+box(col = "grey25")
+
+sb <- 10000
+sx <- fr["xmin"] + 0.05 * diff(fr[c("xmin", "xmax")])
+sy <- fr["ymin"] + 0.06 * diff(fr[c("ymin", "ymax")])
+h <- 0.010 * diff(fr[c("ymin", "ymax")])
+rect(sx, sy, sx + sb, sy + h, col = "grey15", border = "grey15")
+rect(sx + sb, sy, sx + 2 * sb, sy + h, col = "white", border = "grey15")
+text(c(sx, sx + sb, sx + 2 * sb), sy + 2.8 * h, c("0", "10", "20 km"),
+     cex = 0.6, col = "grey15")
+nx <- fr["xmax"] - 0.06 * diff(fr[c("xmin", "xmax")])
+ny <- fr["ymin"] + 0.08 * diff(fr[c("ymin", "ymax")])
+a <- 0.045 * diff(fr[c("ymin", "ymax")])
+polygon(c(nx, nx - a * 0.40, nx, nx + a * 0.40),
+        c(ny + a, ny - a * 0.28, ny - a * 0.05, ny - a * 0.28),
+        col = "grey15", border = "grey15")
+text(nx, ny + 1.5 * a, "N", cex = 0.8, font = 2, col = "grey15")
+
+legend("topright", inset = 0.012, bg = "white", box.col = "grey55", cex = 0.6,
+       lty = c(1, 1, 1, NA), lwd = c(2.0, 1.0, 0.7, NA), pch = c(NA, NA, NA, 22),
+       pt.bg = c(NA, NA, NA, "grey75"),
+       col = c("#7d1d18", "#c1372f", "#2c6f9e", "grey60"),
+       legend = c("Adelgid, moderate or worse", "Adelgid, other severity",
+                  "Bark beetle", "Lidar tile"))
+par(op)
+```
 
 ## Data preparation
 
