@@ -58,6 +58,17 @@ sev <- as.data.frame.matrix(table(
 sev <- sev[, colSums(sev) > 0, drop = FALSE]
 sev <- cbind(Agent = rownames(sev), sev)
 
+aset <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+aset_tbl <- as.data.frame.matrix(table(
+  Agent = agent_label[aset$PEST_SPECIES_CODE],
+  Severity = factor(sev_label[aset$PEST_SEVERITY_CODE],
+                    levels = unname(sev_label))))
+aset_tbl <- aset_tbl[, colSums(aset_tbl) > 0, drop = FALSE]
+aset_tbl <- cbind(Agent = rownames(aset_tbl), aset_tbl,
+                  Total = rowSums(aset_tbl),
+                  `Area (ha)` = round(tapply(aset$AREA_HA,
+                      agent_label[aset$PEST_SPECIES_CODE], sum)))
+
 lidar <- read.csv(file.path(derived, "lidar-coverage.csv"), check.names = FALSE)
 names(lidar) <- c("Extent", "Tiles", "Full index", "Acquisition years",
                   "Density (pts/m2)", "Point classes")
@@ -166,6 +177,25 @@ paste("Lidar point cloud coverage over the study area and over the Comox field",
 "",
 gfm(lidar),
 "",
+"## Figure 3",
+"",
+paste("Candidate field sites. Points are survey polygons attributed to balsam",
+      "woolly adelgid, sized by area and coloured by severity; open circles lack",
+      "lidar coverage and filled circles have it. Shaded envelopes show LidarBC",
+      "coverage. Rings mark 50, 100 and 150 km from Comox, for travel planning",
+      "only."),
+"",
+"![Candidate field sites](03.outputs/figures/fig-fieldsites-1.png)",
+"",
+"## Figure 4",
+"",
+paste("Lidar tiles and survey polygons over northern Vancouver Island. Grey",
+      "squares are individual point cloud tiles shaded by acquisition year.",
+      "Polygon outlines are survey records, red for adelgid and blue for bark",
+      "beetle, with adelgid polygons rated moderate or worse drawn heavier."),
+"",
+"![Lidar tiles and polygons](03.outputs/figures/fig-tiles-1.png)",
+"",
 "## Table 6",
 "",
 paste("Verification of the balanced accuracy implementation against cases with",
@@ -178,6 +208,16 @@ gfm(data.frame(
   Expected = c(1, 0, 0.5, 0.5),
   Observed = c(1, 0, 0.5, 0.5),
   Agrees = "TRUE", check.names = FALSE)),
+"",
+"## Analysis set",
+"",
+paste("The sample, frozen by `05.scripts/14-build-analysis-set.R`: polygons on",
+      "Pacific silver fir under LidarBC coverage acquired within five years of",
+      "the survey. Severity is trace and light only, because no adelgid polygon",
+      "rated moderate or worse falls under lidar anywhere in British Columbia at",
+      "any useful temporal offset."),
+"",
+gfm(aset_tbl),
 "",
 "## Table 7",
 "",

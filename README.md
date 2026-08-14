@@ -76,6 +76,18 @@ Lidar point cloud coverage over the study area and over the Comox field window. 
 | study area | 18,840 | False | 2023;2024;2025 | 8 | [1,2,7,12] |
 | Comox field window | 999 | True | 2018;2019;2023;2024 | 8 | [1, 2, 7];[1, 7];[1,2,7,12];[7] |
 
+## Figure 3
+
+Candidate field sites. Points are survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC coverage. Rings mark 50, 100 and 150 km from Comox, for travel planning only.
+
+![Candidate field sites](03.outputs/figures/fig-fieldsites-1.png)
+
+## Figure 4
+
+Lidar tiles and survey polygons over northern Vancouver Island. Grey squares are individual point cloud tiles shaded by acquisition year. Polygon outlines are survey records, red for adelgid and blue for bark beetle, with adelgid polygons rated moderate or worse drawn heavier.
+
+![Lidar tiles and polygons](03.outputs/figures/fig-tiles-1.png)
+
 ## Table 6
 
 Verification of the balanced accuracy implementation against cases with analytically known values.
@@ -86,6 +98,15 @@ Verification of the balanced accuracy implementation against cases with analytic
 | Fully inverted prediction | 0.0 | 0.0 | TRUE |
 | All assigned to majority class | 0.5 | 0.5 | TRUE |
 | Imbalanced, all majority (overall accuracy 0.75) | 0.5 | 0.5 | TRUE |
+
+## Analysis set
+
+The sample, frozen by `05.scripts/14-build-analysis-set.R`: polygons on Pacific silver fir under LidarBC coverage acquired within five years of the survey. Severity is trace and light only, because no adelgid polygon rated moderate or worse falls under lidar anywhere in British Columbia at any useful temporal offset.
+
+| Agent | Trace | Light | Moderate | Total | Area (ha) |
+|---|---|---|---|---|---|
+| Balsam woolly adelgid | 45 | 8 | 0 | 53 | 2375 |
+| Western balsam bark beetle | 60 | 14 | 5 | 79 | 3847 |
 
 ## Table 7
 
