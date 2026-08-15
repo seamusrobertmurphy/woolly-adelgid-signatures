@@ -24,12 +24,19 @@ dir.create(out, showWarnings = FALSE, recursive = TRUE)
 
 BC_ALBERS <- 3005
 # Map frame, slightly wider than the analysis envelope so the island sits inside
-# a margin rather than against the neatline.
+# a margin rather than against the neatline. This is the view the figures show.
 FRAME <- c(xmin = -129.2, ymin = 48.0, xmax = -122.3, ymax = 51.4)
+# Data are clipped wider than the view. The figures plot at a fixed aspect ratio,
+# which expands the shorter axis past the view rectangle; land cropped at the
+# view would stop short of the neatline and leave a band of sea where the
+# mainland belongs. The pad is generous enough to survive a change of figure
+# proportions.
+PAD <- 1.2
+DATA_FRAME <- FRAME + c(-PAD, -PAD, PAD, PAD)
 
 clip <- function(x) {
   x <- sf::st_make_valid(sf::st_transform(x, 4326))
-  suppressWarnings(sf::st_crop(x, FRAME))
+  suppressWarnings(sf::st_crop(x, DATA_FRAME))
 }
 
 message("downloading Natural Earth layers")
@@ -56,7 +63,11 @@ lakes <- tryCatch({
 
 layers <- list(
   land   = clip(land["featurecla"]),
-  rivers = clip(rivers["name"])
+  rivers = clip(rivers["name"]),
+  # The view rectangle, saved so the figures set their limits from it rather
+  # than from the bounding box of the land, which is now deliberately wider.
+  frame  = sf::st_sf(name = "Map frame",
+                     geometry = sf::st_as_sfc(sf::st_bbox(FRAME, crs = 4326)))
 )
 
 # Administrative boundary. Drawing the full outline of each province or state
@@ -120,7 +131,7 @@ message("wrote ", path)
 suppressMessages(library(terra))
 suppressMessages(library(elevatr))
 
-frame_sf <- sf::st_as_sf(sf::st_as_sfc(sf::st_bbox(FRAME, crs = 4326)))
+frame_sf <- sf::st_as_sf(sf::st_as_sfc(sf::st_bbox(DATA_FRAME, crs = 4326)))
 dem <- elevatr::get_elev_raster(frame_sf, z = 7, clip = "bbox", verbose = FALSE)
 dem <- terra::project(terra::rast(dem), paste0("EPSG:", BC_ALBERS))
 
