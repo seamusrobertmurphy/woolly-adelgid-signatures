@@ -2079,6 +2079,10 @@ if (!file.exists(struct_path)) local({
   stopifnot(length(grep("PEST|SPECIES|SEVERITY|AGENT|CAPTURE", names(tab),
                         ignore.case = TRUE)) == 0)
   write.csv(tab, struct_path, row.names = FALSE)
+  # The partial file has served its purpose. Leaving it would let a
+  # deliberate re-run resume instead of recomputing, which is not what
+  # deleting the output asks for.
+  if (file.exists(part_path)) invisible(file.remove(part_path))
 
   write.csv(data.frame(
     parameter = c("source", "tiles", "tile_points", "canopy_min_h_m",
