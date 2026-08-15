@@ -103,10 +103,10 @@ Verification of the balanced accuracy implementation against cases with analytic
 
 The sample, frozen by `05.scripts/14-build-analysis-set.R`: polygons on Pacific silver fir under LidarBC coverage acquired within five years of the survey. Severity is trace and light only, because no adelgid polygon rated moderate or worse falls under lidar anywhere in British Columbia at any useful temporal offset.
 
-| Agent | Trace | Light | Moderate | Total | Area (ha) |
-|---|---|---|---|---|---|
-| Balsam woolly adelgid | 45 | 8 | 0 | 53 | 2375 |
-| Western balsam bark beetle | 60 | 14 | 5 | 79 | 3847 |
+| Agent | Trace | Light | Total | Area (ha) |
+|---|---|---|---|---|
+| Balsam woolly adelgid | 44 | 4 | 48 | 2238 |
+| Western balsam bark beetle | 29 | 7 | 36 | 1386 |
 
 ## Table 7
 
