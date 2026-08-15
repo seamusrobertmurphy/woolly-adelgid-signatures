@@ -1892,41 +1892,51 @@ if (!file.exists(struct_path)) local({
   # Family 3 describes density and openness, the response both agents share. It
   # is a control: if it alone separates the agents, the result is about damage
   # intensity rather than damage geometry.
-  canopy_metrics <- function(las, chm, area_m2) {
+  canopy_metrics <- function(las, chm, pg) {
     z <- las@data$Z
     z <- z[is.finite(z) & z >= CANOPY_MIN_H]
     if (length(z) < 100) return(NULL)
     first <- las@data[las@data$ReturnNumber == 1L, ]
     zf <- first$Z[is.finite(first$Z)]
 
-    q <- stats::quantile(z, c(.25, .50, .75, .95), names = FALSE)
-    zmax <- max(z)
+    q <- stats::quantile(z, c(.25, .50, .75, .95, .99), names = FALSE)
+    # The 99th percentile stands in for the maximum throughout. The delivered
+    # tiles carry a low-noise class but no high-noise class, so a single bird or
+    # atmospheric return tens of metres above the canopy would otherwise set the
+    # ceiling for every ratio below it and drive them all towards zero.
+    ztop <- q[5]
 
+    # Cell accounting is confined to the polygon. The canopy model is
+    # rectangular and its corners lie outside, where an empty cell means absence
+    # of polygon rather than absence of canopy; counting those as gaps is what
+    # would put gap fraction at 0.85 beside a canopy cover of 0.94.
+    inside <- terra::rasterize(terra::vect(pg), chm, field = 1)
+    in_cell <- !is.na(terra::values(inside, mat = FALSE))
     v <- terra::values(chm, mat = FALSE)
-    v_in <- v[!is.na(v)]
-    # An empty cell is counted as gap, not as missing: at the common density a
-    # 1 m cell expects several returns, so an empty one is an opening rather
-    # than an absence of survey.
-    n_cells <- length(v)
-    n_gap_cells <- sum(is.na(v) | v < CANOPY_MIN_H)
+    n_cells <- sum(in_cell)
+    v_in <- v[in_cell]
+    v_in <- v_in[!is.na(v_in)]
 
-    # Contiguous low patches only. A single empty cell is where one pulse found
-    # a hole in a crown, which is a property of the sampling rather than of the
-    # stand, so patches below GAP_MIN_AREA are not counted as gaps.
-    gap_mask <- terra::ifel(is.na(chm) | chm < CANOPY_MIN_H, 1, NA)
-    patches <- terra::patches(gap_mask, directions = 8, zeroAsNA = TRUE)
+    # Within the polygon an empty cell is counted as gap rather than as missing:
+    # at the common density a 1 m cell expects several returns, so an empty one
+    # is an opening. Contiguous patches only, since a single empty cell is where
+    # one pulse found a hole in a crown, which is a property of the sampling
+    # rather than of the stand.
+    gap_r <- terra::ifel(!is.na(inside) & (is.na(chm) | chm < CANOPY_MIN_H),
+                         1, NA)
+    patches <- terra::patches(gap_r, directions = 8, zeroAsNA = TRUE)
     psz <- terra::freq(patches)
     keep_px <- if (is.null(psz) || !nrow(psz)) 0 else
       sum(psz$count[psz$count * (CHM_RES^2) >= GAP_MIN_AREA])
-    gap_frac <- keep_px * (CHM_RES^2) / area_m2
+    gap_frac <- if (n_cells > 0) keep_px / n_cells else NA_real_
 
     data.frame(
       # Family 1, vertical redistribution
       zq25 = q[1], zq50 = q[2], zq75 = q[3], zq95 = q[4],
       zq25_zq95 = if (q[4] > 0) q[1] / q[4] else NA_real_,
-      # Canopy relief ratio, (mean - min) / (max - min) over canopy returns.
-      crr = if (zmax > min(z)) (mean(z) - min(z)) / (zmax - min(z)) else NA_real_,
-      above_two_thirds = sum(z > (2 / 3) * zmax) / length(z),
+      # Canopy relief ratio, (mean - min) / (top - min) over canopy returns.
+      crr = if (ztop > min(z)) (mean(z) - min(z)) / (ztop - min(z)) else NA_real_,
+      above_two_thirds = sum(z > (2 / 3) * ztop) / length(z),
       # Family 2, surface roughness
       rumple = tryCatch(lidR::rumple_index(chm), error = function(e) NA_real_),
       chm_sd = if (length(v_in) > 1) stats::sd(v_in) else NA_real_,
@@ -1938,14 +1948,14 @@ if (!file.exists(struct_path)) local({
       # Vertical complexity index: Shannon entropy of the height distribution in
       # 1 m bins, normalised by the entropy of a uniform distribution over the
       # same bins, so 1 is an evenly filled profile and 0 a single layer.
-      vci = tryCatch(lidR::VCI(z, zmax = zmax, by = 1), error = function(e) NA_real_),
-      n_gap_cells = n_gap_cells, n_cells = n_cells,
+      vci = tryCatch(lidR::VCI(z, zmax = ztop, by = 1), error = function(e) NA_real_),
+      ztop = ztop, n_cells = n_cells,
       stringsAsFactors = FALSE)
   }
 
   one_polygon <- function(i) {
     tl <- map[map$poly_id == poly_id[i], ]
-    if (!nrow(tl)) return(NULL)
+    if (!nrow(tl)) return("no tile matched in the index")
     paths <- file.path(lidar_dir, tl$year, tl$filename)
     area_m2 <- as.numeric(sf::st_area(eroded[i]))
 
@@ -1953,37 +1963,46 @@ if (!file.exists(struct_path)) local({
     for (k in seq_along(paths)) {
       hdr <- lidR::readLASheader(paths[k])
       crs_tile <- sf::st_crs(hdr)
-      if (is.na(crs_tile)) return(NULL)
+      if (is.na(crs_tile)) return("tile carries no CRS")
       pg <- sf::st_transform(eroded[i], crs_tile)
       bb <- sf::st_bbox(pg)
       xy <- sprintf("-keep_xy %f %f %f %f",
                     bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])
 
+      # One read per tile, not two. A reader must decompress every point in a
+      # chunk before it can discard any, so a second pass for ground costs a
+      # second full decompression and buys nothing: reading once and splitting
+      # in memory halves the only expensive step in this block. The full tile is
+      # released before the next one is opened, so the peak is one tile.
+      las <- tryCatch(lidR::readLAS(paths[k], select = "xyzrc", filter = xy),
+                      error = function(e) NULL)
+      if (is.null(las) || lidR::is.empty(las)) next
+
       # Ground at full density: the terrain surface should be as good as the
       # delivery allows, and ground returns are a small share of the whole.
-      g <- tryCatch(lidR::readLAS(paths[k], select = "xyzc",
-                                  filter = paste(xy, "-keep_class 2")),
-                    error = function(e) NULL)
-      if (!is.null(g) && !lidR::is.empty(g)) grd[[length(grd) + 1L]] <- g
+      g <- lidR::filter_poi(las, Classification == 2L)
+      if (!lidR::is.empty(g)) grd[[length(grd) + 1L]] <- g
 
-      # Everything else decimated at read, to the target density with a margin,
-      # so the memory never holds the delivered density.
+      # Everything else brought down towards the common density with a margin,
+      # so the merged cloud never holds the delivered density.
       dens <- tn$density_actual[match(tl$filename[k], tn$filename)]
-      frac <- if (is.finite(dens) && dens > TARGET_DENS)
-        min(1, (TARGET_DENS * 3) / dens) else 1
-      f2 <- if (frac < 1)
-        paste(xy, sprintf("-keep_random_fraction %.4f", frac)) else xy
-      v <- tryCatch(lidR::readLAS(paths[k], select = "xyzrc", filter = f2),
-                    error = function(e) NULL)
-      if (!is.null(v) && !lidR::is.empty(v)) veg[[length(veg) + 1L]] <- v
+      v <- if (is.finite(dens) && dens > TARGET_DENS * 3)
+        lidR::decimate_points(las, lidR::random(TARGET_DENS * 3)) else las
+      if (!lidR::is.empty(v)) veg[[length(veg) + 1L]] <- v
+      rm(las); invisible(gc())
     }
-    if (!length(grd) || !length(veg)) return(NULL)
+    # The index is a footprint layer and its footprints claim ground the
+    # delivered clouds do not cover, so a polygon can match a tile and still
+    # have no points in it. That is a coverage fact and is reported, not
+    # silently dropped.
+    if (!length(grd) || !length(veg))
+      return("no returns inside the polygon: the tile index claims coverage the point cloud does not contain")
 
     g <- if (length(grd) == 1) grd[[1]] else do.call(rbind, grd)
     v <- if (length(veg) == 1) veg[[1]] else do.call(rbind, veg)
     pg <- sf::st_transform(eroded[i], sf::st_crs(v))
     v <- tryCatch(lidR::clip_roi(v, pg), error = function(e) NULL)
-    if (is.null(v) || lidR::is.empty(v)) return(NULL)
+    if (is.null(v) || lidR::is.empty(v)) return("no returns after clipping to the polygon")
     dens_raw <- nrow(v@data) / area_m2 / (if (length(veg)) 1 else 1)
 
     # Terrain from class 2 returns only. The delivered tiles carry no vegetation
@@ -1991,9 +2010,9 @@ if (!file.exists(struct_path)) local({
     dtm <- tryCatch(lidR::rasterize_terrain(g, res = DTM_RES,
                                             algorithm = lidR::tin()),
                     error = function(e) NULL)
-    if (is.null(dtm)) return(NULL)
+    if (is.null(dtm)) return("terrain surface could not be interpolated")
     v <- tryCatch(lidR::normalize_height(v, dtm), error = function(e) NULL)
-    if (is.null(v)) return(NULL)
+    if (is.null(v)) return("height normalisation failed")
 
     # The common density. Every metric responds to density and density tracks
     # campaign, so this is what stops the model reading the aircraft.
@@ -2004,10 +2023,10 @@ if (!file.exists(struct_path)) local({
     chm <- tryCatch(lidR::rasterize_canopy(v, res = CHM_RES,
                                            algorithm = lidR::p2r(subcircle = 0.15)),
                     error = function(e) NULL)
-    if (is.null(chm)) return(NULL)
+    if (is.null(chm)) return("canopy height model could not be built")
 
-    m <- canopy_metrics(v, chm, area_m2)
-    if (is.null(m)) return(NULL)
+    m <- canopy_metrics(v, chm, pg)
+    if (is.null(m)) return("fewer than 100 canopy returns above the canopy threshold")
     cbind(data.frame(poly_id = poly_id[i], area_ha = round(area_m2 / 1e4, 2),
                      n_tiles = nrow(tl), lidar_year = lidar_year[i],
                      dens_raw = round(dens_raw, 1),
@@ -2015,16 +2034,29 @@ if (!file.exists(struct_path)) local({
                      stringsAsFactors = FALSE), m)
   }
 
-  rows <- list(); failed <- character(0)
+  rows <- list(); drops <- list()
   for (i in seq_len(n_all)) {
-    r <- tryCatch(one_polygon(i), error = function(e) {
-      message("  ", poly_id[i], " failed: ", conditionMessage(e)); NULL })
-    if (is.null(r)) failed <- c(failed, poly_id[i]) else rows[[length(rows) + 1L]] <- r
-    message(sprintf("  %s %s (%d of %d)", poly_id[i],
-                    if (is.null(r)) "FAILED" else "ok", i, n_all))
+    r <- tryCatch(one_polygon(i),
+                  error = function(e) paste("error:", conditionMessage(e)))
+    if (is.character(r) || is.null(r)) {
+      why <- if (is.null(r)) "unknown" else r
+      drops[[length(drops) + 1L]] <- data.frame(poly_id = poly_id[i],
+                                                reason = why,
+                                                stringsAsFactors = FALSE)
+      message(sprintf("  %s DROPPED (%d of %d): %s", poly_id[i], i, n_all, why))
+    } else {
+      rows[[length(rows) + 1L]] <- r
+      message(sprintf("  %s ok (%d of %d)", poly_id[i], i, n_all))
+    }
     invisible(gc())
   }
   tab <- do.call(rbind, rows)
+  # Every polygon that produced no metrics is written out with the reason, so
+  # the difference between the frozen sample and this table is auditable rather
+  # than a silent shrinkage.
+  if (length(drops))
+    write.csv(do.call(rbind, drops),
+              file.path(derived, "structural-dropped.csv"), row.names = FALSE)
   tab <- tab[order(tab$poly_id), ]
 
   # The guard that matters: no label may leave this block. lidar_year is a
@@ -2050,7 +2082,7 @@ if (!file.exists(struct_path)) local({
               paste0("CHM cell below ", CANOPY_MIN_H,
                      " m or empty, in contiguous patches of at least ",
                      GAP_MIN_AREA, " m2"),
-              BUFFER_M, n_all, nrow(tab), length(failed),
+              BUFFER_M, n_all, nrow(tab), length(drops),
               min(tab$dens_raw), median(tab$dens_raw), max(tab$dens_raw),
               median(tab$dens_used), as.character(Sys.Date())),
     stringsAsFactors = FALSE), struct_log, row.names = FALSE)
