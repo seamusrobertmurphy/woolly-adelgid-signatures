@@ -61,7 +61,13 @@ BC_ALBERS <- 3005
 # Figures are written to 03.outputs/figures as well as embedded, so the README
 # and any submission package reference committed files rather than extracting
 # images from a rendered document.
-knitr::opts_chunk$set(fig.path = file.path(outputs, "figures/"),
+#
+# The path must be relative to this document. Pandoc resolves an image src
+# against the document's directory, so an absolute path arrives as
+# "./Volumes/..." which resolves to nothing, and embed-resources then drops
+# every figure without failing the render. The files still land in the same
+# place; only the reference changes.
+knitr::opts_chunk$set(fig.path = "../03.outputs/figures/",
                       dpi = 300, dev = "png")
 
 fmt_tbl <- function(df, right = NULL) {
@@ -785,6 +791,1111 @@ Restricting the sample to Vancouver Island buys internal validity at the price o
 ## Detection and attribution
 
 This study evaluates attribution rather than detection, and the distinction is maintained throughout. Establishing that a canopy has changed is a different problem from identifying the agent responsible, and a model can perform well at the first while failing the second [@Campbell_2023]. Accuracy figures are therefore reported with their support, their class balance and their validation design.
+
+# Analysis pipeline
+
+Every derived file the sections above read is produced by the code in this section, in the order given. Nothing here is a description of code kept elsewhere: this is the code, and `05.scripts/` is generated from it by `knitr::purl()` rather than maintained alongside it, so the two cannot diverge.
+
+Each block is guarded on the file it writes. A render with the derived files present executes none of them and the sections above read what is already on disk; delete a file and the block that makes it runs. The guard is what allows a twenty minute Earth Engine export and a 79 GB lidar retrieval to sit in a document that renders in seconds. Each block is wrapped in `local()` so that a pipeline object cannot silently replace one the manuscript is already using.
+
+Two steps were shell and Python until 2026-08-14 and are R here, so that everything the study runs can be read in one language and in one place.
+
+## Label extraction
+
+The survey archive is a 908 MB file geodatabase of 1,172,716 polygons. It is never read into memory: `sf::gdal_utils()` drives the same GDAL routine that `ogr2ogr` does, so the selection and reprojection happen inside GDAL and only the extracted records reach R.
+
+```{r}
+#| label: pipe-labels
+#| echo: true
+#| output: false
+# Source:    Pest Infestation Polygons, BC Data Catalogue, record
+#            450b67bb-02d5-4526-8bc0-ac7924125a1e
+# Licence:   Open Government Licence - British Columbia
+# Custodian: BC Ministry of Forests. Not GeoBC.
+#
+# The delivered geodatabase carries codes only, no common or latin names, so IAB
+# is resolved from the Forest Health Aerial Overview Survey Standards rather than
+# from the delivery.
+#
+# NOTE ON TESTING. The archive is not on this machine, so this block has not been
+# run end to end since it was translated from shell. The GDAL call and the layer
+# and field names were checked against the committed extracts on 2026-08-14; the
+# WHERE clauses were not re-executed. Set ADELGID_GDB to the archive to run it.
+gdb <- Sys.getenv("ADELGID_GDB", unset = "")
+iab_path <- file.path(derived, "adelgid-iab-polygons.geojson")
+vi_path <- file.path(derived, "vi-fir-agents.geojson")
+
+if (!file.exists(iab_path) || !file.exists(vi_path)) local({
+  if (!nzchar(gdb) || !file.exists(gdb))
+    stop("set ADELGID_GDB to the pest_infestation_poly.gdb archive")
+
+  # 1. Province-wide balsam woolly adelgid, for the extent and time series.
+  # WGS84 so the file is readable without a projection library. The attributes
+  # kept are the ones needed to judge label quality.
+  sf::gdal_utils(
+    util = "vectortranslate", source = gdb, destination = iab_path,
+    options = c("-f", "GeoJSON", "-t_srs", "EPSG:4326", "-sql",
+                paste("SELECT CAPTURE_YEAR, PEST_SEVERITY_CODE,",
+                      "PEST_CAPTURE_METHOD_CODE, TREE_SPECIES_CODE, AREA_HA",
+                      "FROM pest_infestation_poly",
+                      "WHERE PEST_SPECIES_CODE = 'IAB'")))
+
+  # 2. The two agents that share a true-fir host around Vancouver Island. IAB is
+  # the target class and IBB, western balsam bark beetle, the confusable one:
+  # both are mapped on Pacific silver fir in the same survey, so separating them
+  # is attribution, not detection. The envelope is a rectangle and therefore also
+  # catches the adjacent mainland; the sample is restricted to the island later,
+  # and both counts are reported.
+  sf::gdal_utils(
+    util = "vectortranslate", source = gdb, destination = vi_path,
+    options = c("-f", "GeoJSON", "-t_srs", "EPSG:4326",
+                "-spat", "-128.5", "48.3", "-123.0", "51.0",
+                "-spat_srs", "EPSG:4326", "-sql",
+                paste("SELECT CAPTURE_YEAR, PEST_SPECIES_CODE,",
+                      "PEST_SEVERITY_CODE, TREE_SPECIES_CODE, AREA_HA",
+                      "FROM pest_infestation_poly",
+                      "WHERE PEST_SPECIES_CODE IN ('IAB','IBB')",
+                      "AND TREE_SPECIES_CODE IN ('B','BA','BG','BL')")))
+})
+```
+
+```{r}
+#| label: pipe-labels-out
+fmt_tbl(data.frame(
+  File = c("adelgid-iab-polygons.geojson", "vi-fir-agents.geojson"),
+  Contents = c("Balsam woolly adelgid, province-wide",
+               "Both agents on true fir, study envelope"),
+  Polygons = c(nrow(iab), nrow(vi)),
+  Years = c(paste(range(iab$CAPTURE_YEAR), collapse = " to "),
+            paste(range(vi$CAPTURE_YEAR), collapse = " to "))))
+```
+
+## Tile index
+
+The LidarBC point cloud index is queried once over the study envelope and saved, because every coverage decision downstream depends on the same tile geometry and acquisition years. The service returns at most 1,000 records per request, so the query is paged to exhaustion rather than truncated.
+
+Until 2026-08-14 this file existed in `02.inputs/derived/` with no code in the repository that produced it, while four scripts read it and the sample depended on it. The block below was written to close that gap and reproduces the committed file exactly: 18,840 tiles, identical attributes and identical total area.
+
+```{r}
+#| label: pipe-tiles
+#| echo: true
+#| output: false
+# Source:    LidarBC Open LiDAR Data Portal, ArcGIS FeatureServer
+#            LiDAR_BC_S3_Public, layer 4, the point cloud index.
+# Licence:   Open Government Licence - British Columbia.
+# Custodian: GeoBC.
+LIDAR_SERVICE <- paste0("https://services6.arcgis.com/ubm4tcTYICKBpist/ArcGIS/",
+                        "rest/services/LiDAR_BC_S3_Public/FeatureServer")
+PC_LAYER <- 4L
+STUDY_ENV <- c(-128.5, 48.3, -123.0, 51.0)
+PAGE <- 1000L
+
+# One URL builder for every query this manuscript makes against the service.
+lidar_url <- function(layer, env, ...) {
+  gj <- sprintf(paste0('{"xmin":%f,"ymin":%f,"xmax":%f,"ymax":%f,',
+                       '"spatialReference":{"wkid":4326}}'),
+                env[1], env[2], env[3], env[4])
+  p <- c(list(where = "1=1", geometry = gj,
+              geometryType = "esriGeometryEnvelope", inSR = "4326",
+              spatialRel = "esriSpatialRelIntersects", f = "json"), list(...))
+  paste0(LIDAR_SERVICE, "/", layer, "/query?",
+         paste(names(p), vapply(p, function(v)
+           URLencode(as.character(v), reserved = TRUE), ""),
+           sep = "=", collapse = "&"))
+}
+
+tiles_path <- file.path(derived, "lidar-tiles.geojson")
+if (!file.exists(tiles_path)) local({
+  acc <- list(); off <- 0L
+  repeat {
+    u <- lidar_url(PC_LAYER, STUDY_ENV, outFields = "year,density,maptile",
+                   returnGeometry = "true", outSR = "4326", f = "geojson",
+                   resultOffset = off, resultRecordCount = PAGE)
+    ch <- try(sf::st_read(u, quiet = TRUE), silent = TRUE)
+    if (inherits(ch, "try-error") || nrow(ch) == 0L) break
+    acc[[length(acc) + 1L]] <- ch
+    if (nrow(ch) < PAGE) break
+    off <- off + PAGE
+  }
+  sf::st_write(do.call(rbind, acc), tiles_path, quiet = TRUE)
+})
+```
+
+```{r}
+#| label: pipe-tiles-out
+local({
+  tl <- sf::st_read(tiles_path, quiet = TRUE)
+  fmt_tbl(data.frame(
+    Tiles = nrow(tl),
+    `Acquisition years` = paste(range(tl$year, na.rm = TRUE), collapse = " to "),
+    `Point density` = paste(unique(tl$density), collapse = ", "),
+    `Area covered (km2)` = round(sum(as.numeric(
+      sf::st_area(sf::st_transform(tl, BC_ALBERS)))) / 1e6),
+    check.names = FALSE))
+})
+```
+
+## Coverage summary
+
+Tile counts over the study envelope and over the Comox field window, taken with `returnCountOnly` rather than by paging, so a count is exact even where it exceeds the record cap. Where the count exceeds the cap the attribute summaries are drawn from a capped sample and are flagged as such, because they are then what the sample happened to contain rather than the full range.
+
+```{r}
+#| label: pipe-coverage
+#| echo: true
+#| output: false
+cov_path <- file.path(derived, "lidar-coverage.csv")
+if (!file.exists(cov_path)) local({
+  envelopes <- list("study area" = STUDY_ENV,
+                    "Comox field window" = c(-125.3, 49.4, -124.5, 49.9))
+  rows <- lapply(names(envelopes), function(nm) {
+    env <- envelopes[[nm]]
+    n <- jsonlite::fromJSON(lidar_url(PC_LAYER, env, returnCountOnly = "true"),
+                            simplifyVector = FALSE)$count
+    s <- jsonlite::fromJSON(
+      lidar_url(PC_LAYER, env, outFields = "year,density,projection,classes",
+                returnGeometry = "false", resultRecordCount = 1000),
+      simplifyVector = FALSE)
+    at <- lapply(s$features, `[[`, "attributes")
+    pull <- function(k) sort(unique(unlist(lapply(at, function(a) a[[k]]))))
+    data.frame(envelope = nm, tiles = n,
+               attrs_from_full_index = n <= 1000,
+               acquisition_years_sampled = paste(pull("year"), collapse = ";"),
+               density_pts_m2 = paste(pull("density"), collapse = ";"),
+               point_classes = paste(pull("classes"), collapse = ";"),
+               stringsAsFactors = FALSE)
+  })
+  write.csv(do.call(rbind, rows), cov_path, row.names = FALSE)
+})
+```
+
+## Basemap layers
+
+Natural Earth vectors and an elevation hillshade, clipped and reprojected to BC Albers once so that the study area figure draws a metrically true scale bar. Natural Earth is public domain.
+
+```{r}
+#| label: pipe-basemap
+#| echo: true
+#| output: false
+bm_path <- file.path(derived, "basemap.gpkg")
+hs_path <- file.path(derived, "hillshade.tif")
+
+# Map frame, slightly wider than the analysis envelope so the island sits inside
+# a margin rather than against the neatline. This is the view the figures show.
+FRAME <- c(xmin = -129.2, ymin = 48.0, xmax = -122.3, ymax = 51.4)
+# Data are clipped wider than the view. The figures plot at a fixed aspect ratio,
+# which expands the shorter axis past the view rectangle; land cropped at the
+# view would stop short of the neatline and leave a band of sea where the
+# mainland belongs.
+PAD <- 1.2
+DATA_FRAME <- FRAME + c(-PAD, -PAD, PAD, PAD)
+
+if (!file.exists(bm_path) || !file.exists(hs_path)) local({
+  library(rnaturalearth)
+  library(elevatr)
+
+  clip <- function(x) {
+    x <- sf::st_make_valid(sf::st_transform(x, 4326))
+    suppressWarnings(sf::st_crop(x, DATA_FRAME))
+  }
+
+  land <- ne_download(scale = 10, type = "land", category = "physical",
+                      returnclass = "sf")
+  states <- ne_states(country = c("Canada", "United States of America"),
+                      returnclass = "sf")
+  # The global rivers layer resolves only one river inside this frame, which is
+  # useless for orientation. The North America supplement resolves 32.
+  rivers <- ne_download(scale = 10, type = "rivers_north_america",
+                        category = "physical", returnclass = "sf")
+  # Several lake polygons carry self-intersecting rings. s2 rejects them
+  # outright, so validity is repaired in planar mode.
+  lakes <- tryCatch({
+    old <- sf::sf_use_s2(FALSE); on.exit(sf::sf_use_s2(old), add = TRUE)
+    ne_download(scale = 10, type = "lakes_north_america",
+                category = "physical", returnclass = "sf")
+  }, error = function(e) NULL)
+
+  layers <- list(
+    land = clip(land["featurecla"]),
+    rivers = clip(rivers["name"]),
+    # The view rectangle, saved so the figures set their limits from it rather
+    # than from the bounding box of the land, which is deliberately wider.
+    frame = sf::st_sf(name = "Map frame",
+                      geometry = sf::st_as_sfc(sf::st_bbox(FRAME, crs = 4326))))
+
+  # Only the shared land border is kept. Drawing the full provincial outline
+  # would retrace the coastline in a second style, which is confusing at this
+  # extent; the international boundary is the only administrative line inside
+  # this frame.
+  bc <- states[states$name == "British Columbia", ]
+  us <- states[states$admin == "United States of America", ]
+  border <- tryCatch({
+    old <- sf::sf_use_s2(FALSE); on.exit(sf::sf_use_s2(old), add = TRUE)
+    b <- sf::st_intersection(
+      sf::st_boundary(sf::st_make_valid(sf::st_union(bc))),
+      sf::st_buffer(sf::st_boundary(sf::st_make_valid(sf::st_union(us))), 0.02))
+    sf::st_sf(name = "International boundary", geometry = sf::st_geometry(b))
+  }, error = function(e) NULL)
+  if (!is.null(border)) layers$admin <- clip(border)
+  if (!is.null(lakes)) {
+    old <- sf::sf_use_s2(FALSE); layers$lakes <- clip(lakes["name"])
+    sf::sf_use_s2(old)
+  }
+
+  if (file.exists(bm_path)) file.remove(bm_path)
+  for (nm in names(layers))
+    sf::st_write(sf::st_transform(layers[[nm]], BC_ALBERS), bm_path,
+                 layer = nm, quiet = TRUE, append = FALSE)
+
+  # Place labels that orient a reader unfamiliar with the coast. Coordinates are
+  # from the BC Geographical Names Office listings, entered by hand because the
+  # Natural Earth populated-places layer omits the smaller island communities.
+  places <- sf::st_as_sf(data.frame(
+    name = c("Comox", "Campbell River", "Port Alberni", "Nanaimo",
+             "Victoria", "Vancouver", "Tofino", "Port Hardy"),
+    lon = c(-124.928, -125.247, -124.805, -123.936,
+            -123.365, -123.121, -125.906, -127.418),
+    lat = c(49.673, 50.024, 49.234, 49.166,
+            48.428, 49.283, 49.153, 50.720)),
+    coords = c("lon", "lat"), crs = 4326)
+  sf::st_write(sf::st_transform(places, BC_ALBERS), bm_path, layer = "places",
+               quiet = TRUE, append = FALSE)
+
+  # Hillshade, so the reader sees the mountain spine rather than a flat outline.
+  # AWS Terrain Tiles via elevatr. Zoom 7 is about 1 km ground resolution, ample
+  # at this extent and small enough to commit.
+  frame_sf <- sf::st_as_sf(sf::st_as_sfc(sf::st_bbox(DATA_FRAME, crs = 4326)))
+  dem <- elevatr::get_elev_raster(frame_sf, z = 7, clip = "bbox",
+                                  verbose = FALSE)
+  dem <- terra::project(terra::rast(dem), paste0("EPSG:", BC_ALBERS))
+  # Terrain tiles return zero or small positive values over water rather than
+  # negative ones, so an elevation threshold does not separate sea from shore.
+  # Masking by the coastline polygon does.
+  dem <- terra::mask(dem, terra::vect(sf::st_geometry(
+    sf::st_transform(layers$land, BC_ALBERS))))
+  hs <- terra::shade(terra::terrain(dem, "slope", unit = "radians"),
+                     terra::terrain(dem, "aspect", unit = "radians"),
+                     angle = 40, direction = 315)
+  terra::writeRaster(hs, hs_path, overwrite = TRUE,
+                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2"))
+})
+```
+
+```{r}
+#| label: pipe-basemap-out
+local({
+  ly <- sf::st_layers(bm_path)
+  fmt_tbl(data.frame(Layer = ly$name,
+                     Features = as.integer(ly$features),
+                     Geometry = vapply(ly$geomtype, function(g) g[1], "")))
+})
+```
+
+## Site candidates
+
+Every adelgid polygon in the province, with the lidar tiles over it, its acquisition years and the offset from the survey year. Coverage is queried per polygon envelope rather than over one rectangle, because the province-wide record runs from the coast to the Kootenays and a single envelope would pull far more tile geometry than this machine should hold.
+
+```{r}
+#| label: pipe-candidates
+#| echo: true
+#| output: false
+cand_path <- file.path(derived, "site-candidates-province.csv")
+if (!file.exists(cand_path)) local({
+  sev <- c(T = "Trace", L = "Light", M = "Moderate", S = "Severe",
+           V = "Very severe")
+  host <- c(B = "True fir unspecified", BA = "Pacific silver fir",
+            BG = "Grand fir", BL = "Subalpine fir")
+
+  tiles_over <- function(bb) {
+    n <- jsonlite::fromJSON(lidar_url(PC_LAYER, bb, returnCountOnly = "true"),
+                            simplifyVector = FALSE)$count
+    if (!length(n) || n == 0) return(list(n = 0L, years = integer(0)))
+    d <- jsonlite::fromJSON(
+      lidar_url(PC_LAYER, bb, outFields = "year", returnGeometry = "false",
+                resultRecordCount = 1000), simplifyVector = FALSE)
+    list(n = n, years = sort(unique(unlist(
+      lapply(d$features, function(f) f$attributes$year)))))
+  }
+
+  src <- sf::st_read(file.path(derived, "adelgid-iab-polygons.geojson"),
+                     quiet = TRUE)
+  rows <- lapply(seq_len(nrow(src)), function(i) {
+    bb <- as.numeric(sf::st_bbox(sf::st_geometry(src)[i]))
+    tv <- tiles_over(bb)
+    yr <- src$CAPTURE_YEAR[i]
+    near <- if (length(tv$years) && !is.na(yr))
+      tv$years[which.min(abs(tv$years - yr))] else NA_integer_
+    Sys.sleep(0.25)
+    data.frame(
+      capture_year = yr,
+      severity = unname(sev[src$PEST_SEVERITY_CODE[i]]),
+      severity_code = src$PEST_SEVERITY_CODE[i],
+      host = unname(host[src$TREE_SPECIES_CODE[i]]),
+      host_code = ifelse(is.na(src$TREE_SPECIES_CODE[i]), "",
+                         src$TREE_SPECIES_CODE[i]),
+      area_ha = round(src$AREA_HA[i], 1),
+      lidar_tiles = tv$n,
+      lidar_years = paste(tv$years, collapse = ";"),
+      nearest_lidar_year = if (is.na(near)) "" else near,
+      year_offset = if (is.na(near)) "" else abs(near - yr),
+      lon = round(mean(bb[c(1, 3)]), 5), lat = round(mean(bb[c(2, 4)]), 5),
+      on_vancouver_island = bb[3] < -123.2 && bb[4] < 51.2,
+      stringsAsFactors = FALSE)
+  })
+  out <- do.call(rbind, rows)
+  out <- out[order(-out$lidar_tiles, out$severity_code), ]
+  write.csv(out, cand_path, row.names = FALSE)
+})
+```
+
+## Availability screen
+
+The study is located by where all three requirements already coexist, rather than by preference. Earlier work asked whether a chosen set of polygons had lidar, which is the wrong order and produced a design requiring lidar that does not exist. A region is only a candidate if it can supply both agents on the shared host, since adelgid polygons under lidar with no bark beetle polygons under the same lidar cannot support a two-class attribution test at all.
+
+```{r}
+#| label: pipe-availability
+#| echo: true
+#| output: false
+avail_path <- file.path(derived, "availability-regions.csv")
+if (!file.exists(avail_path)) local({
+  MAX_OFFSET <- 3          # years between survey and lidar acquisition
+  GRID <- 25000            # 25 km analysis cells
+
+  v <- sf::st_transform(sf::st_make_valid(sf::st_read(
+    file.path(derived, "vi-fir-agents.geojson"), quiet = TRUE)), BC_ALBERS)
+  tl <- sf::st_transform(sf::st_make_valid(sf::st_read(
+    file.path(derived, "lidar-tiles.geojson"), quiet = TRUE)), BC_ALBERS)
+
+  hit <- sf::st_intersects(v, tl)
+  v$lidar_tiles <- lengths(hit)
+  v$nearest_year <- vapply(seq_len(nrow(v)), function(k) {
+    if (!v$lidar_tiles[k]) return(NA_integer_)
+    ys <- tl$year[hit[[k]]]; ys <- ys[!is.na(ys)]
+    if (!length(ys)) return(NA_integer_)
+    ys[which.min(abs(ys - v$CAPTURE_YEAR[k]))]
+  }, integer(1))
+  v$offset <- abs(v$nearest_year - v$CAPTURE_YEAR)
+  usable <- v[!is.na(v$offset) & v$offset <= MAX_OFFSET, ]
+
+  cells <- sf::st_make_grid(usable, cellsize = GRID)
+  cells <- sf::st_sf(cell = seq_along(cells), geometry = cells)
+  ix <- sf::st_intersects(cells, usable)
+  sev_rank <- c(T = 1, L = 2, M = 3, S = 4, V = 5)
+
+  rows <- lapply(seq_len(nrow(cells)), function(k) {
+    sub <- usable[ix[[k]], ]
+    if (!nrow(sub)) return(NULL)
+    a <- sub[sub$PEST_SPECIES_CODE == "IAB", ]
+    b <- sub[sub$PEST_SPECIES_CODE == "IBB", ]
+    ctr <- sf::st_coordinates(sf::st_centroid(sf::st_transform(cells[k, ], 4326)))
+    data.frame(
+      cell = k, lon = round(ctr[1, 1], 3), lat = round(ctr[1, 2], 3),
+      iab_n = nrow(a), ibb_n = nrow(b),
+      # Shared host is what makes the comparison an attribution test.
+      iab_ba = sum(a$TREE_SPECIES_CODE %in% "BA"),
+      ibb_ba = sum(b$TREE_SPECIES_CODE %in% "BA"),
+      iab_best_sev = if (nrow(a)) names(which.max(
+        sev_rank[a$PEST_SEVERITY_CODE])) else NA_character_,
+      iab_mod_plus = sum(a$PEST_SEVERITY_CODE %in% c("M", "S", "V")),
+      iab_ha = round(sum(a$AREA_HA)),
+      yrs = paste(range(sub$CAPTURE_YEAR), collapse = "-"),
+      med_offset = median(sub$offset))
+  })
+  tab <- do.call(rbind, rows)
+  tab$viable <- tab$iab_ba > 0 & tab$ibb_ba > 0
+  tab <- tab[order(-tab$viable, -(tab$iab_ba + tab$ibb_ba), -tab$iab_mod_plus), ]
+  write.csv(tab, avail_path, row.names = FALSE)
+})
+```
+
+## Sample freeze
+
+The five inclusion conditions, applied in order. This block writes the file that is the sample, and its size is the study's sample size. Nothing downstream filters these polygons again.
+
+```{r}
+#| label: pipe-sample
+#| echo: true
+#| output: false
+set_path <- file.path(derived, "analysis-set.geojson")
+restr_path <- file.path(derived, "analysis-set-restriction.csv")
+
+if (!file.exists(set_path) || !file.exists(restr_path)) local({
+  MAX_OFFSET <- 5
+  # A point in Strathcona Park, well inland, used to pick Vancouver Island out of
+  # the land layer by containment rather than by area, so the selection cannot
+  # silently attach to a different landmass.
+  VI_SEED <- c(-125.60, 49.60)
+
+  v <- sf::st_transform(sf::st_make_valid(sf::st_read(
+    file.path(derived, "vi-fir-agents.geojson"), quiet = TRUE)), BC_ALBERS)
+  tl <- sf::st_transform(sf::st_make_valid(sf::st_read(
+    file.path(derived, "lidar-tiles.geojson"), quiet = TRUE)), BC_ALBERS)
+
+  # 2. Host held constant, so the comparison is attribution rather than host
+  # discrimination.
+  v <- v[v$TREE_SPECIES_CODE %in% "BA", ]
+
+  # 3 and 4. Lidar coverage, and an acquisition within MAX_OFFSET years.
+  hit <- sf::st_intersects(v, tl)
+  v$lidar_tiles <- lengths(hit)
+  v$lidar_year <- vapply(seq_len(nrow(v)), function(k) {
+    if (!v$lidar_tiles[k]) return(NA_integer_)
+    ys <- tl$year[hit[[k]]]; ys <- ys[!is.na(ys)]
+    if (!length(ys)) return(NA_integer_)
+    ys[which.min(abs(ys - v$CAPTURE_YEAR[k]))]
+  }, integer(1))
+  v$year_offset <- abs(v$lidar_year - v$CAPTURE_YEAR)
+  aset <- v[!is.na(v$year_offset) & v$year_offset <= MAX_OFFSET, ]
+
+  # 5. Vancouver Island only. Off the island the record is 43 bark beetle to 5
+  # adelgid and 38 of 48 polygons come from one 2020 acquisition, so landmass and
+  # campaign each predict the agent almost perfectly. Blocking does not answer a
+  # confound that holds within folds as well as across them, so region is
+  # neutralised by restriction, the instrument already used for host.
+  land_l <- sf::st_transform(sf::st_make_valid(
+    sf::st_read(bm_path, "land", quiet = TRUE)), BC_ALBERS)
+  seed <- sf::st_transform(sf::st_sfc(sf::st_point(VI_SEED), crs = 4326),
+                           BC_ALBERS)
+  island <- land_l[lengths(sf::st_intersects(land_l, seed)) > 0, ]
+  stopifnot(nrow(island) == 1)
+  on_island <- lengths(sf::st_intersects(
+    sf::st_centroid(sf::st_geometry(aset)), island)) > 0
+
+  # The counts that motivate the restriction are saved rather than quoted from a
+  # terminal session, because the manuscript reports them.
+  restriction <- as.data.frame(table(
+    landmass = ifelse(on_island, "Vancouver Island", "Elsewhere"),
+    agent = aset$PEST_SPECIES_CODE,
+    lidar_year = aset$lidar_year), stringsAsFactors = FALSE)
+  restriction <- restriction[restriction$Freq > 0, ]
+  names(restriction)[names(restriction) == "Freq"] <- "n"
+  write.csv(restriction, restr_path, row.names = FALSE)
+
+  aset <- aset[on_island, ]
+  if (file.exists(set_path)) invisible(file.remove(set_path))
+  sf::st_write(sf::st_transform(aset, 4326), set_path, quiet = TRUE)
+})
+```
+
+```{r}
+#| label: pipe-sample-out
+fmt_tbl(data.frame(
+  Quantity = c("Polygons", "Adelgid", "Bark beetle", "Imbalance",
+               "Survey years", "Lidar years", "Median offset (years)",
+               "Total area (ha)"),
+  Value = c(as.character(n_set), as.character(n_set_iab),
+            as.character(n_set_ibb), paste(set_imbalance, "to 1"),
+            paste(set_years, collapse = " to "),
+            paste(sort(unique(aset$lidar_year)), collapse = ", "),
+            as.character(set_offset_med),
+            format(set_ha, big.mark = ","))))
+```
+
+## Optical predictors
+
+Sentinel-2 Level 2A over the leaf-on window of the label epoch, masked from the scene classification layer, corrected scene by scene for topographic illumination by SCS+C, reduced to a median composite and summarised to the inward-buffered polygon. No label enters this block: the analysis set is stripped to geometry and a positional identifier before anything is sent to Earth Engine, and the output is asserted to carry no agent, severity or host column.
+
+The empirical `c` parameter is fitted per scene and per band by regression of reflectance on the illumination condition, over the sample polygons padded outward, so the correction is calibrated on the terrain it is applied to. Pixels facing away from the sun are masked rather than corrected, since the correction is undefined there. A tasselled cap transform is deliberately absent: the Sentinel-2 coefficients have not been read from their source publication, and unverified coefficients are not written into code.
+
+```{r}
+#| label: pipe-optical
+#| echo: true
+#| output: false
+opt_path <- file.path(derived, "predictors-optical.csv")
+opt_log <- file.path(derived, "predictors-optical-log.csv")
+
+EE_PROJECT <- "murphys-deforisk"
+S2_START <- "2019-06-01"
+S2_END <- "2021-09-30"
+BUFFER_M <- 20            # inward erosion of the survey polygon, provisional
+SUMM_SCALE <- 20          # metres, scale of the polygon summary
+
+if (!file.exists(opt_path)) local({
+  library(rgee)
+  MAX_CLOUD  <- 40        # scene cloud cover, percent
+  FIT_PAD_M  <- 5000      # outward pad of the region the c parameter is fitted on
+  FIT_SCALE  <- 100       # metres, scale of the c parameter fit
+  FIT_MIN_PX <- 500       # minimum valid pixels in the fit region to keep a scene
+
+  BANDS <- c("B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B11", "B12")
+  # Scene classification classes retained: 4 vegetation, 5 not vegetated,
+  # 7 unclassified. Masked: 0 no data, 1 saturated, 2 dark, 3 cloud shadow,
+  # 6 water, 8 and 9 cloud, 10 cirrus, 11 snow.
+  SCL_KEEP <- c(4L, 5L, 7L)
+
+  a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+  n_all <- nrow(a)
+  # poly_id is positional in the frozen file, and every predictor block derives
+  # it the same way, so the three tables join on a common key.
+  poly_id <- sprintf("P%03d", seq_len(n_all))
+  # Everything except geometry is dropped here. No label reaches Earth Engine.
+  geom <- sf::st_transform(sf::st_geometry(a), BC_ALBERS)
+  rm(a)
+
+  # Sketch-mapped boundaries are approximate, so the polygon is eroded before it
+  # is summarised. Polygons too small to survive erosion are dropped and counted.
+  eroded <- sf::st_buffer(geom, -BUFFER_M)
+  alive <- !sf::st_is_empty(eroded)
+  n_dropped <- sum(!alive)
+  eroded <- eroded[alive]; poly_id <- poly_id[alive]
+  polys <- sf::st_sf(poly_id = poly_id,
+                     geometry = sf::st_transform(eroded, 4326))
+  stopifnot(identical(setdiff(names(polys), "geometry"), "poly_id"))
+
+  ee_Initialize(project = EE_PROJECT, quiet = TRUE)
+  fc <- sf_as_ee(polys)
+  # The c parameter is fitted over the sample padded outward, rather than over
+  # the whole scene, so the regression describes the terrain the correction is
+  # applied to and the computation stays bounded.
+  fit_region <- sf_as_ee(sf::st_transform(
+    sf::st_union(sf::st_buffer(sf::st_union(geom), FIT_PAD_M)), 4326))
+
+  dem <- ee$ImageCollection("COPERNICUS/DEM/GLO30")$select("DEM")$mosaic()$
+    setDefaultProjection("EPSG:3857", NULL, 30)
+  terrain <- ee$Terrain$products(dem)
+  slope_rad <- terrain$select("slope")$multiply(pi / 180)
+  aspect_rad <- terrain$select("aspect")$multiply(pi / 180)
+
+  mask_scl <- function(img) {
+    scl <- img$select("SCL")
+    keep <- scl$eq(SCL_KEEP[1])
+    for (k in SCL_KEEP[-1]) keep <- keep$Or(scl$eq(k))
+    img$updateMask(keep)
+  }
+
+  # Illumination condition, the cosine of the solar incidence angle on the local
+  # surface. A non-positive value faces away from the sun and is masked.
+  illumination <- function(img) {
+    sz <- ee$Number(img$get("MEAN_SOLAR_ZENITH_ANGLE"))$multiply(pi / 180)
+    sa <- ee$Number(img$get("MEAN_SOLAR_AZIMUTH_ANGLE"))$multiply(pi / 180)
+    il <- ee$Image$constant(sz$cos())$multiply(slope_rad$cos())$add(
+      ee$Image$constant(sz$sin())$multiply(slope_rad$sin())$
+        multiply(aspect_rad$subtract(sa)$cos()))
+    il$rename("IL")
+  }
+
+  prepare <- function(img) {
+    refl <- mask_scl(img)$select(BANDS)$divide(10000)
+    il <- illumination(img)
+    refl$updateMask(il$gt(0))$addBands(il)$
+      copyProperties(img, list("system:time_start",
+                               "MEAN_SOLAR_ZENITH_ANGLE",
+                               "MEAN_SOLAR_AZIMUTH_ANGLE"))
+  }
+
+  # SCS+C. rho_corrected = rho * (cos(slope) cos(zenith) + c) / (IL + c), with c
+  # the ratio of intercept to slope from the per-band regression of reflectance
+  # on IL. A non-positive fitted slope is physically wrong, so c is forced large
+  # and the correction collapses to the identity for that band.
+  correct_scsc <- function(img) {
+    sz <- ee$Number(img$get("MEAN_SOLAR_ZENITH_ANGLE"))$multiply(pi / 180)
+    il <- img$select("IL")
+    design <- ee$Image$constant(1)$rename("constant")$addBands(il)$
+      addBands(img$select(BANDS))$updateMask(il$mask())
+    fit <- design$reduceRegion(
+      reducer = ee$Reducer$linearRegression(numX = 2L, numY = length(BANDS)),
+      geometry = fit_region, scale = FIT_SCALE, maxPixels = 1e9, tileScale = 4L)
+    coefs <- ee$Array(fit$get("coefficients"))
+    intercept <- ee$Image$constant(
+      coefs$slice(0L, 0L, 1L)$project(list(1L))$toList())$rename(BANDS)
+    slope <- ee$Image$constant(
+      coefs$slice(0L, 1L, 2L)$project(list(1L))$toList())$rename(BANDS)
+    cimg <- intercept$divide(slope)
+    cimg <- cimg$where(slope$lte(0), 1e6)
+    cimg <- cimg$where(cimg$lte(0), 1e6)
+    numer <- ee$Image$constant(sz$cos())$multiply(slope_rad$cos())$add(cimg)
+    img$select(BANDS)$multiply(numer$divide(il$add(cimg)))$
+      copyProperties(img, list("system:time_start"))
+  }
+
+  # Scenes with too few valid pixels cannot support the regression and are
+  # dropped rather than corrected from a degenerate fit.
+  count_fit_px <- function(img) {
+    img$set("n_fit", img$select("B8")$reduceRegion(
+      reducer = ee$Reducer$count(), geometry = fit_region, scale = FIT_SCALE,
+      maxPixels = 1e9, tileScale = 4L)$get("B8"))
+  }
+
+  raw <- ee$ImageCollection("COPERNICUS/S2_SR_HARMONIZED")$
+    filterBounds(fit_region)$filterDate(S2_START, S2_END)$
+    filter(ee$Filter$lt("CLOUDY_PIXEL_PERCENTAGE", MAX_CLOUD))
+  n_raw <- raw$size()$getInfo()
+
+  prepared <- raw$map(ee_utils_pyfunc(prepare))$
+    map(ee_utils_pyfunc(count_fit_px))$
+    filter(ee$Filter$gt("n_fit", FIT_MIN_PX))
+  n_fit <- prepared$size()$getInfo()
+
+  composite <- prepared$map(ee_utils_pyfunc(correct_scsc))$median()
+
+  # Indices selected for sensitivity to canopy water content and to visible and
+  # shortwave change. Provisional; the set is fixed at pre-registration.
+  nd <- function(x, y, nm) composite$normalizedDifference(c(x, y))$rename(nm)
+  indices <- nd("B8", "B4", "NDVI")$
+    addBands(nd("B8", "B11", "NDMI"))$
+    addBands(nd("B8", "B12", "NBR"))$
+    addBands(nd("B8", "B5", "NDRE1"))$
+    addBands(nd("B8", "B3", "GNDVI"))$
+    addBands(composite$select("B11")$divide(composite$select("B8"))$rename("MSI"))$
+    addBands(composite$select("B11")$divide(composite$select("B12"))$rename("SWIRR"))$
+    addBands(composite$expression(
+      "2.5 * (nir - red) / (nir + 6 * red - 7.5 * blue + 1)",
+      list(nir = composite$select("B8"), red = composite$select("B4"),
+           blue = composite$select("B2")))$rename("EVI"))
+
+  stack <- composite$addBands(indices)
+  VARS <- c(BANDS, "NDVI", "NDMI", "NBR", "NDRE1", "GNDVI", "MSI", "SWIRR", "EVI")
+
+  reducer <- ee$Reducer$mean()$
+    combine(reducer2 = ee$Reducer$stdDev(), sharedInputs = TRUE)$
+    combine(reducer2 = ee$Reducer$count(), sharedInputs = TRUE)
+  summaries <- stack$reduceRegions(collection = fc, reducer = reducer,
+                                   scale = SUMM_SCALE, tileScale = 4L)
+
+  # Drive credentials are not set on this machine, so the export goes to an
+  # Earth Engine asset and is read back. Polling is to completion rather than
+  # for a fixed number of attempts: reading the asset before the task has
+  # written it fails with a misleading "not found".
+  asset_id <- sprintf("projects/%s/assets/adelgid-optical-%s", EE_PROJECT,
+                      format(Sys.Date(), "%Y%m%d"))
+  try(ee_manage_delete(asset_id), silent = TRUE)
+  task <- ee_table_to_asset(collection = summaries,
+                            description = "adelgid_optical", assetId = asset_id)
+  task$start()
+  repeat {
+    st <- task$status()
+    if (st$state %in% c("COMPLETED", "FAILED", "CANCELLED", "CANCEL_REQUESTED"))
+      break
+    Sys.sleep(30)
+  }
+  if (st$state != "COMPLETED") stop("Earth Engine export ", st$state)
+
+  got <- ee$FeatureCollection(asset_id)$getInfo()
+  rows <- lapply(got$features, function(f)
+    as.data.frame(f$properties, stringsAsFactors = FALSE))
+  tab <- do.call(rbind, lapply(rows, function(r) {
+    wanted <- c("poly_id", unlist(lapply(VARS, function(v)
+      paste0(v, c("_mean", "_stdDev", "_count")))))
+    for (m in setdiff(wanted, names(r))) r[[m]] <- NA_real_
+    r[, wanted, drop = FALSE]
+  }))
+  tab <- tab[order(tab$poly_id), ]
+
+  # The guard that matters: no label may leave this block.
+  stopifnot(length(grep("PEST|SPECIES|SEVERITY|AGENT|CAPTURE|lidar|offset|AREA",
+                        names(tab), ignore.case = TRUE)) == 0)
+  write.csv(tab, opt_path, row.names = FALSE)
+  write.csv(data.frame(
+    parameter = c("collection", "start", "end", "max_scene_cloud_pct",
+                  "scl_kept", "scenes_matched", "scenes_corrected",
+                  "topographic_correction", "dem", "c_fit_scale_m",
+                  "c_fit_pad_m", "c_fit_min_pixels", "inward_buffer_m",
+                  "summary_scale_m", "polygons_in", "polygons_dropped_by_buffer",
+                  "polygons_out", "built"),
+    value = c("COPERNICUS/S2_SR_HARMONIZED", S2_START, S2_END, MAX_CLOUD,
+              paste(SCL_KEEP, collapse = " "), n_raw, n_fit, "SCS+C",
+              "COPERNICUS/DEM/GLO30", FIT_SCALE, FIT_PAD_M, FIT_MIN_PX,
+              BUFFER_M, SUMM_SCALE, n_all, n_dropped, nrow(tab),
+              as.character(Sys.Date())), stringsAsFactors = FALSE),
+    opt_log, row.names = FALSE)
+})
+```
+
+```{r}
+#| label: pipe-optical-out
+local({
+  o <- read.csv(opt_path)
+  v <- c("NDVI", "NDMI", "NBR", "EVI")
+  fmt_tbl(data.frame(
+    Index = v,
+    Minimum = round(vapply(v, function(k) min(o[[paste0(k, "_mean")]]), 0), 3),
+    Median = round(vapply(v, function(k) median(o[[paste0(k, "_mean")]]), 0), 3),
+    Maximum = round(vapply(v, function(k) max(o[[paste0(k, "_mean")]]), 0), 3),
+    `Within-polygon SD` = round(vapply(v, function(k)
+      median(o[[paste0(k, "_stdDev")]]), 0), 3),
+    check.names = FALSE))
+})
+```
+
+## Radar predictors
+
+Sentinel-1 Ground Range Detected in interferometric wide swath mode, both polarisations, over the same window as the optical build. The archive is delivered thermal-noise-removed, radiometrically calibrated and Range Doppler terrain corrected. Border noise removal and orbit refinement are not documented for the collection, so border noise is handled here by eroding each scene footprint and masking a low-intensity floor, and no orbit refinement is claimed.
+
+Backscatter is flattened radiometrically against a digital elevation model by the angular volumetric model of @Vollrath_2020, which is appropriate to a vegetated surface. Layover and shadow are masked on the published conditions and the retained fraction of every polygon is written out, so the reduction is reported rather than absorbed. Both temporal statistics are formed within orbit pass before the passes are combined: ascending and descending views of the same slope differ by more than flattening removes, and pooling them would write that difference into the dispersion as a terrain effect. The level is averaged in power and converted to decibels afterwards, because averaging decibels averages logarithms and biases the result low; the dispersion is the standard deviation of the decibel series, since speckle is multiplicative and so additive in the log.
+
+```{r}
+#| label: pipe-radar
+#| echo: true
+#| output: false
+rad_path <- file.path(derived, "predictors-radar.csv")
+rad_log <- file.path(derived, "predictors-radar-log.csv")
+
+if (!file.exists(rad_path)) local({
+  library(rgee)
+  BORDER_ERODE_M <- 1000   # inward erosion of the scene footprint, border noise
+  BORDER_FLOOR_DB <- -30   # below this is border artefact, not target
+  MIN_PASS_SCENES <- 5     # a pass with fewer gives no usable dispersion
+  HEADING_SCALE <- 1000    # metres, scale of the look direction estimate
+  POLS <- c("VV", "VH")
+  PASSES <- c("ASCENDING", "DESCENDING")
+  VARS <- c("VV_gamma0", "VH_gamma0", "VV_tsd", "VH_tsd")
+
+  a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+  n_all <- nrow(a)
+  poly_id <- sprintf("P%03d", seq_len(n_all))
+  geom <- sf::st_transform(sf::st_geometry(a), BC_ALBERS)
+  rm(a)
+  eroded <- sf::st_buffer(geom, -BUFFER_M)
+  alive <- !sf::st_is_empty(eroded)
+  n_dropped <- sum(!alive)
+  polys <- sf::st_sf(poly_id = poly_id[alive],
+                     geometry = sf::st_transform(eroded[alive], 4326))
+  stopifnot(identical(setdiff(names(polys), "geometry"), "poly_id"))
+
+  ee_Initialize(project = EE_PROJECT, quiet = TRUE)
+  fc <- sf_as_ee(polys)
+  # sf_as_ee on an sfc returns an ee$Geometry, not a Feature.
+  region <- sf_as_ee(sf::st_transform(sf::st_union(geom), 4326))
+
+  dem <- ee$ImageCollection("COPERNICUS/DEM/GLO30")$select("DEM")$mosaic()$
+    setDefaultProjection("EPSG:3857", NULL, 30)
+  ninety_rad <- ee$Image$constant(90)$multiply(pi / 180)
+
+  # Angular radiometric slope correction, volumetric model. The equations were
+  # read from Vollrath, Mullissa and Reiche (2020) and the implementation checked
+  # against the authors' own module:
+  #   gamma0   = sigma0 / cos(theta_i)
+  #   alpha_r  = arctan(tan(alpha_s) cos(phi_r))
+  #   gamma0_f = gamma0 * tan(90 - theta_i) / tan(90 - theta_i + alpha_r)
+  slope_correct <- function(img) {
+    scene <- img$geometry()
+    proj <- img$select("VV")$projection()
+    # The look direction is the aspect of the incidence angle surface, taken
+    # coarsely because it is near constant across the swath.
+    heading <- ee$Terrain$aspect(img$select("angle"))$
+      reduceRegion(reducer = ee$Reducer$mean(), geometry = scene,
+                   scale = HEADING_SCALE, maxPixels = 1e9, bestEffort = TRUE)$
+      get("aspect")
+    sigma0_pow <- ee$Image$constant(10)$pow(img$select(POLS)$divide(10))
+    theta_i <- img$select("angle")$multiply(pi / 180)$clip(scene)
+    phi_i <- ee$Image$constant(heading)$multiply(pi / 180)
+    # Terrain geometry, evaluated in the projection of the radar image.
+    alpha_s <- ee$Terrain$slope(dem)$select("slope")$multiply(pi / 180)$
+      setDefaultProjection(proj)$clip(scene)
+    phi_s <- ee$Terrain$aspect(dem)$select("aspect")$multiply(pi / 180)$
+      setDefaultProjection(proj)$clip(scene)
+    alpha_r <- alpha_s$tan()$multiply(phi_i$subtract(phi_s)$cos())$atan()
+    gamma0 <- sigma0_pow$divide(theta_i$cos())
+    scf <- ninety_rad$subtract(theta_i)$add(alpha_r)$tan()$
+      divide(ninety_rad$subtract(theta_i)$tan())
+    g_db <- ee$Image$constant(10)$multiply(gamma0$divide(scf)$log10())$
+      select(POLS)$rename(POLS)
+    # Valid where neither in active layover nor in active shadow.
+    valid <- alpha_r$lt(theta_i)$
+      And(alpha_r$gt(ninety_rad$subtract(theta_i)$multiply(-1)))
+    g_db$updateMask(valid)$updateMask(g_db$gt(BORDER_FLOOR_DB))$
+      clip(scene$buffer(-BORDER_ERODE_M, 100))$
+      copyProperties(img, list("system:time_start", "orbitProperties_pass"))
+  }
+
+  to_power <- function(img) {
+    ee$Image$constant(10)$pow(img$select(POLS)$divide(10))$
+      copyProperties(img, list("system:time_start"))
+  }
+
+  raw <- ee$ImageCollection("COPERNICUS/S1_GRD")$
+    filterBounds(region)$filterDate(S2_START, S2_END)$
+    filter(ee$Filter$eq("instrumentMode", "IW"))$
+    filter(ee$Filter$eq("resolution_meters", 10))$
+    filter(ee$Filter$listContains("transmitterReceiverPolarisation", "VV"))$
+    filter(ee$Filter$listContains("transmitterReceiverPolarisation", "VH"))
+  n_raw <- raw$size()$getInfo()
+  corrected <- raw$map(ee_utils_pyfunc(slope_correct))
+
+  pow_list <- list(); var_list <- list()
+  pass_n <- stats::setNames(integer(length(PASSES)), PASSES)
+  for (p in PASSES) {
+    cp <- corrected$filter(ee$Filter$eq("orbitProperties_pass", p))
+    n_p <- cp$size()$getInfo()
+    pass_n[p] <- n_p
+    if (n_p < MIN_PASS_SCENES) next
+    pow_list[[p]] <- cp$map(ee_utils_pyfunc(to_power))$mean()
+    var_list[[p]] <- cp$select(POLS)$reduce(ee$Reducer$stdDev())$pow(2)
+  }
+  n_used <- sum(pass_n[names(pow_list)])
+  stopifnot(length(pow_list) > 0)
+
+  gamma_db <- ee$ImageCollection$fromImages(unname(pow_list))$mean()$
+    log10()$multiply(10)$rename(c("VV_gamma0", "VH_gamma0"))
+  pooled_sd <- ee$ImageCollection$fromImages(unname(var_list))$mean()$sqrt()$
+    rename(c("VV_tsd", "VH_tsd"))
+  # An unmasked copy of one band gives the polygon's full pixel count on the
+  # same grid, so the layover and shadow loss is reported as a retained fraction
+  # rather than left implicit in a smaller count.
+  all_band <- gamma_db$select("VV_gamma0")$unmask(-999)$rename("ALL")
+  stack <- gamma_db$addBands(pooled_sd)$addBands(all_band)
+
+  reducer <- ee$Reducer$mean()$
+    combine(reducer2 = ee$Reducer$stdDev(), sharedInputs = TRUE)$
+    combine(reducer2 = ee$Reducer$count(), sharedInputs = TRUE)
+  summaries <- stack$reduceRegions(collection = fc, reducer = reducer,
+                                   scale = SUMM_SCALE, tileScale = 4L)
+
+  asset_id <- sprintf("projects/%s/assets/adelgid-radar-%s", EE_PROJECT,
+                      format(Sys.Date(), "%Y%m%d"))
+  try(ee_manage_delete(asset_id), silent = TRUE)
+  task <- ee_table_to_asset(collection = summaries,
+                            description = "adelgid_radar", assetId = asset_id)
+  task$start()
+  repeat {
+    st <- task$status()
+    if (st$state %in% c("COMPLETED", "FAILED", "CANCELLED", "CANCEL_REQUESTED"))
+      break
+    Sys.sleep(30)
+  }
+  if (st$state != "COMPLETED") stop("Earth Engine export ", st$state)
+
+  got <- ee$FeatureCollection(asset_id)$getInfo()
+  rows <- lapply(got$features, function(f)
+    as.data.frame(f$properties, stringsAsFactors = FALSE))
+  tab <- do.call(rbind, lapply(rows, function(r) {
+    wanted <- c("poly_id", unlist(lapply(VARS, function(v)
+      paste0(v, c("_mean", "_stdDev", "_count")))), "ALL_count")
+    for (m in setdiff(wanted, names(r))) r[[m]] <- NA_real_
+    r[, wanted, drop = FALSE]
+  }))
+  tab <- tab[order(tab$poly_id), ]
+  # The reduction the methods require to be reported.
+  tab$retained_frac <- round(tab$VV_gamma0_count / tab$ALL_count, 4)
+
+  stopifnot(length(grep("PEST|SPECIES|SEVERITY|AGENT|CAPTURE|lidar|offset|AREA",
+                        names(tab), ignore.case = TRUE)) == 0)
+  write.csv(tab, rad_path, row.names = FALSE)
+  write.csv(data.frame(
+    parameter = c("collection", "start", "end", "instrument_mode",
+                  "polarisations", "resolution_m", "scenes_matched",
+                  "scenes_ascending", "scenes_descending", "scenes_used",
+                  "collection_preprocessing", "orbit_file",
+                  "border_noise_handling", "border_floor_db", "border_erode_m",
+                  "terrain_flattening", "dem", "layover_shadow_mask",
+                  "temporal_statistics", "inward_buffer_m", "summary_scale_m",
+                  "polygons_in", "polygons_dropped_by_buffer", "polygons_out",
+                  "min_retained_frac", "built"),
+    value = c("COPERNICUS/S1_GRD", S2_START, S2_END, "IW",
+              paste(POLS, collapse = " "), 10, n_raw,
+              pass_n[["ASCENDING"]], pass_n[["DESCENDING"]], n_used,
+              "thermal noise removal, calibration, Range Doppler terrain correction",
+              "not documented by the Earth Engine catalogue, not asserted",
+              "scene footprint eroded and low-intensity floor masked, applied here",
+              BORDER_FLOOR_DB, BORDER_ERODE_M,
+              "angular volumetric model, Vollrath et al. 2020",
+              "COPERNICUS/DEM/GLO30",
+              "active layover alpha_r > theta_i, active shadow alpha_r < -(90 - theta_i)",
+              "within orbit pass, level as mean power, dispersion as dB standard deviation",
+              BUFFER_M, SUMM_SCALE, n_all, n_dropped, nrow(tab),
+              min(tab$retained_frac, na.rm = TRUE), as.character(Sys.Date())),
+    stringsAsFactors = FALSE), rad_log, row.names = FALSE)
+})
+```
+
+```{r}
+#| label: pipe-radar-out
+local({
+  r <- read.csv(rad_path)
+  v <- c("VV_gamma0", "VH_gamma0", "VV_tsd", "VH_tsd")
+  fmt_tbl(data.frame(
+    Variable = c("VV backscatter (dB)", "VH backscatter (dB)",
+                 "VV temporal dispersion (dB)", "VH temporal dispersion (dB)"),
+    Minimum = round(vapply(v, function(k) min(r[[paste0(k, "_mean")]]), 0), 2),
+    Median = round(vapply(v, function(k) median(r[[paste0(k, "_mean")]]), 0), 2),
+    Maximum = round(vapply(v, function(k) max(r[[paste0(k, "_mean")]]), 0), 2)))
+})
+```
+
+## Structural predictors
+
+The tiles the sample needs are selected by intersection with the frozen analysis set **and** by acquisition year, so a polygon is measured on the campaign the sample matched it to rather than on whichever campaign happens to overlap it. Files already present at the right size are skipped, so the retrieval is restartable, and every file is verified against the size the server advertised because a truncated LAZ reads without error for a while and then fails deep inside a metric.
+
+```{r}
+#| label: pipe-lidar-fetch
+#| echo: true
+#| output: false
+tile_map_path <- file.path(derived, "lidar-tile-map.csv")
+tile_need_path <- file.path(derived, "lidar-tiles-needed.csv")
+lidar_dir <- file.path(inputs, "lidar")
+FETCH_JOBS <- 4L
+
+if (!file.exists(tile_need_path)) local({
+  a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+  n_all <- nrow(a)
+  keep <- data.frame(poly_id = sprintf("P%03d", seq_len(n_all)),
+                     lidar_year = a$lidar_year, stringsAsFactors = FALSE)
+  g4 <- sf::st_transform(sf::st_geometry(a), 4326)
+  bb <- as.numeric(sf::st_bbox(g4))
+
+  acc <- list(); off <- 0L
+  repeat {
+    u <- lidar_url(PC_LAYER, bb,
+                   outFields = "maptile,year,density,filename,s3Url,projection",
+                   returnGeometry = "true", outSR = "4326", f = "geojson",
+                   resultOffset = off, resultRecordCount = PAGE)
+    ch <- try(sf::st_read(u, quiet = TRUE), silent = TRUE)
+    if (inherits(ch, "try-error") || nrow(ch) == 0L) break
+    acc[[length(acc) + 1L]] <- ch
+    if (nrow(ch) < PAGE) break
+    off <- off + PAGE
+  }
+  idx <- do.call(rbind, acc)
+
+  hits <- sf::st_intersects(sf::st_sf(geometry = g4), idx)
+  rows <- lapply(seq_len(n_all), function(i) {
+    k <- hits[[i]]
+    k <- k[idx$year[k] == keep$lidar_year[i]]
+    if (!length(k)) return(NULL)
+    data.frame(poly_id = keep$poly_id[i], maptile = idx$maptile[k],
+               year = idx$year[k], density = idx$density[k],
+               projection = idx$projection[k], filename = idx$filename[k],
+               s3Url = idx$s3Url[k], stringsAsFactors = FALSE)
+  })
+  if (!all(vapply(rows, Negate(is.null), TRUE)))
+    stop("no matching-year tile for some polygons")
+
+  # A polygon spanning a tile boundary must have its clouds merged before any
+  # metric is computed, so the polygon-to-tile map is kept, not just the tiles.
+  map <- do.call(rbind, rows)
+  tiles <- unique(map[, c("maptile", "year", "density", "projection",
+                          "filename", "s3Url")])
+  tiles$path <- file.path(lidar_dir, tiles$year, tiles$filename)
+
+  remote_size <- function(url) {
+    h <- try(system2("curl", c("-sIL", "--max-time", "60", shQuote(url)),
+                     stdout = TRUE, stderr = FALSE), silent = TRUE)
+    if (inherits(h, "try-error")) return(NA_real_)
+    l <- grep("^[Cc]ontent-[Ll]ength:", h, value = TRUE)
+    if (!length(l)) return(NA_real_)
+    as.numeric(sub("^[^:]*:\\s*", "", tail(l, 1)))
+  }
+  tiles$bytes <- vapply(tiles$s3Url, remote_size, numeric(1))
+  stopifnot(!anyNA(tiles$bytes))
+
+  have <- file.exists(tiles$path)
+  local_sz <- ifelse(have, file.size(tiles$path), NA_real_)
+  todo <- which(!(have & !is.na(local_sz) & local_sz == tiles$bytes))
+
+  if (length(todo)) {
+    for (y in unique(tiles$year))
+      dir.create(file.path(lidar_dir, y), recursive = TRUE,
+                 showWarnings = FALSE)
+    # curl resumes with -C -, so an interrupted run costs only the partial file.
+    # Parallelism is capped because the link saturates near four streams and the
+    # object store is a shared public resource.
+    ch <- split(todo, ceiling(seq_along(todo) / FETCH_JOBS))
+    for (k in ch) {
+      system(paste(c(sprintf(
+        "curl -sSL -C - --retry 5 --retry-delay 5 -o %s %s &",
+        shQuote(tiles$path[k]), shQuote(tiles$s3Url[k])), "wait"),
+        collapse = "\n"))
+    }
+  }
+
+  fsz <- ifelse(file.exists(tiles$path), file.size(tiles$path), NA_real_)
+  bad <- which(is.na(fsz) | fsz != tiles$bytes)
+  if (length(bad)) stop(length(bad), " tiles incomplete, rerun to resume")
+
+  write.csv(map, tile_map_path, row.names = FALSE)
+  write.csv(tiles[, c("maptile", "year", "density", "projection", "filename",
+                      "bytes")], tile_need_path, row.names = FALSE)
+})
+```
+
+```{r}
+#| label: pipe-lidar-fetch-out
+local({
+  tn <- read.csv(tile_need_path)
+  yrs <- sort(unique(tn$year))
+  fmt_tbl(data.frame(
+    Year = yrs,
+    Tiles = as.integer(tapply(tn$bytes, tn$year, length)[as.character(yrs)]),
+    `Size (GB)` = round(as.numeric(
+      tapply(tn$bytes, tn$year, sum)[as.character(yrs)]) / 1e9, 1),
+    check.names = FALSE))
+})
+```
+
+## Generated scripts
+
+`05.scripts/` is written from this document, not maintained beside it. The block below extracts every pipeline chunk with `knitr::purl()` and splits it by chunk label, so each numbered script is the code above and cannot drift from it. It is skipped on a normal render and run deliberately.
+
+```{r}
+#| label: pipe-purl
+#| echo: true
+#| eval: false
+# Regenerate 05.scripts/ from this manuscript. Run from 01.manuscript/.
+local({
+  tmp <- tempfile(fileext = ".R")
+  knitr::purl("manuscript.qmd", output = tmp, documentation = 1L, quiet = TRUE)
+  src <- readLines(tmp)
+
+  # Quarto keeps chunk options in "#|" comments rather than in the chunk header,
+  # so purl emits anonymous separators and the label survives only in the body.
+  # Split on the label lines, not on the separators.
+  lab_at <- grep("^#\\|\\s*label:", src)
+  labels <- trimws(sub("^#\\|\\s*label:", "", src[lab_at]))
+
+  targets <- c(`pipe-labels` = "01-extract-adelgid-labels.R",
+               `pipe-tiles` = "02-query-lidar-tiles.R",
+               `pipe-coverage` = "02-query-lidar-coverage.R",
+               `pipe-basemap` = "03-prepare-basemap.R",
+               `pipe-candidates` = "12-site-candidates-province.R",
+               `pipe-availability` = "13-data-availability-first.R",
+               `pipe-sample` = "14-build-analysis-set.R",
+               `pipe-optical` = "15-build-optical-predictors.R",
+               `pipe-radar` = "16-build-radar-predictors.R",
+               `pipe-lidar-fetch` = "17-build-lidar-metrics.R")
+
+  header <- c(
+    "# GENERATED FILE. Do not edit.",
+    "# Written from 01.manuscript/manuscript.qmd by the pipe-purl chunk.",
+    "# Edit the chunk in the manuscript and regenerate; edits here are lost.",
+    "# Run from the repository root.", "",
+    "suppressMessages({ library(sf); library(terra) })",
+    "root <- normalizePath('.')",
+    "inputs <- file.path(root, '02.inputs')",
+    "outputs <- file.path(root, '03.outputs')",
+    "derived <- file.path(inputs, 'derived')",
+    "BC_ALBERS <- 3005", "")
+
+  # Blocks that define objects later blocks rely on. Prepended so a generated
+  # script stands alone rather than assuming the manuscript ran first.
+  prereq <- list(
+    `pipe-candidates` = "pipe-tiles", `pipe-coverage` = "pipe-tiles",
+    `pipe-lidar-fetch` = "pipe-tiles", `pipe-sample` = "pipe-basemap",
+    `pipe-radar` = "pipe-optical")
+
+  body_of <- function(lab) {
+    i <- match(lab, labels)
+    stop_at <- if (i < length(lab_at)) lab_at[i + 1] - 1L else length(src)
+    b <- src[lab_at[i]:stop_at]
+    b <- b[!grepl("^#\\|", b)]          # drop the chunk options
+    b[!grepl("^## -{4,}", b)]           # drop purl's separators
+  }
+  # A prerequisite contributes only the definitions above its guard.
+  trim_to_defs <- function(b) {
+    k <- grep("^if \\(", b)
+    if (length(k)) b[seq_len(k[1] - 1L)] else b
+  }
+
+  for (lab in names(targets)) {
+    if (!lab %in% labels) next
+    pre <- character(0)
+    if (!is.null(prereq[[lab]]))
+      pre <- c(paste0("# --- from chunk ", prereq[[lab]],
+                      ", definitions this script depends on ---"),
+               trim_to_defs(body_of(prereq[[lab]])), "")
+    writeLines(c(header, pre, body_of(lab)),
+               file.path("..", "05.scripts", targets[[lab]]))
+  }
+})
+```
 
 # Data availability
 
