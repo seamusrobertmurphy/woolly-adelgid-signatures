@@ -21,13 +21,18 @@ STUDY_ENV <- c(-128.5, 48.3, -123.0, 51.0)
 PAGE <- 1000L
 
 # One URL builder for every query this manuscript makes against the service.
+# Caller arguments replace the defaults rather than being appended to them: the
+# service answers a repeated parameter with HTTP 400, so a caller asking for
+# f = "geojson" must overwrite f = "json" and not sit beside it.
 lidar_url <- function(layer, env, ...) {
   gj <- sprintf(paste0('{"xmin":%f,"ymin":%f,"xmax":%f,"ymax":%f,',
                        '"spatialReference":{"wkid":4326}}'),
                 env[1], env[2], env[3], env[4])
-  p <- c(list(where = "1=1", geometry = gj,
-              geometryType = "esriGeometryEnvelope", inSR = "4326",
-              spatialRel = "esriSpatialRelIntersects", f = "json"), list(...))
+  p <- list(where = "1=1", geometry = gj,
+            geometryType = "esriGeometryEnvelope", inSR = "4326",
+            spatialRel = "esriSpatialRelIntersects", f = "json")
+  extra <- list(...)
+  p[names(extra)] <- extra
   paste0(LIDAR_SERVICE, "/", layer, "/query?",
          paste(names(p), vapply(p, function(v)
            URLencode(as.character(v), reserved = TRUE), ""),

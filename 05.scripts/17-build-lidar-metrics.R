@@ -22,13 +22,18 @@ STUDY_ENV <- c(-128.5, 48.3, -123.0, 51.0)
 PAGE <- 1000L
 
 # One URL builder for every query this manuscript makes against the service.
+# Caller arguments replace the defaults rather than being appended to them: the
+# service answers a repeated parameter with HTTP 400, so a caller asking for
+# f = "geojson" must overwrite f = "json" and not sit beside it.
 lidar_url <- function(layer, env, ...) {
   gj <- sprintf(paste0('{"xmin":%f,"ymin":%f,"xmax":%f,"ymax":%f,',
                        '"spatialReference":{"wkid":4326}}'),
                 env[1], env[2], env[3], env[4])
-  p <- c(list(where = "1=1", geometry = gj,
-              geometryType = "esriGeometryEnvelope", inSR = "4326",
-              spatialRel = "esriSpatialRelIntersects", f = "json"), list(...))
+  p <- list(where = "1=1", geometry = gj,
+            geometryType = "esriGeometryEnvelope", inSR = "4326",
+            spatialRel = "esriSpatialRelIntersects", f = "json")
+  extra <- list(...)
+  p[names(extra)] <- extra
   paste0(LIDAR_SERVICE, "/", layer, "/query?",
          paste(names(p), vapply(p, function(v)
            URLencode(as.character(v), reserved = TRUE), ""),
@@ -40,9 +45,22 @@ tiles_path <- file.path(derived, "lidar-tiles.geojson")
 tile_map_path <- file.path(derived, "lidar-tile-map.csv")
 tile_need_path <- file.path(derived, "lidar-tiles-needed.csv")
 lidar_dir <- file.path(inputs, "lidar")
-FETCH_JOBS <- 4L
+# Two streams, not four. Four saturates the link, and the object store then
+# refuses new connections for seventy-five seconds at a time, so the run spends
+# longer timing out than downloading.
+FETCH_JOBS <- 2L
 
-if (!file.exists(tile_need_path)) local({
+# The guard is on the tiles being complete, not on the manifest existing. A
+# resume after a dropped connection must re-enter this block, and it would not
+# if the presence of the manifest were taken as proof the retrieval finished.
+lidar_complete <- function() {
+  if (!file.exists(tile_need_path)) return(FALSE)
+  tn <- read.csv(tile_need_path)
+  p <- file.path(lidar_dir, tn$year, tn$filename)
+  all(file.exists(p)) && all(file.size(p) == tn$bytes)
+}
+
+if (!lidar_complete()) local({
   a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
   n_all <- nrow(a)
   keep <- data.frame(poly_id = sprintf("P%03d", seq_len(n_all)),
