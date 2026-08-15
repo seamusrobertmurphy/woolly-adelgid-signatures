@@ -226,29 +226,44 @@ if (!file.exists(struct_path)) local({
                      stringsAsFactors = FALSE), m)
   }
 
-  rows <- list(); drops <- list()
+  # Each polygon is written as it finishes, and a restart skips whatever is
+  # already recorded. The run takes hours and this machine has interrupted it
+  # more than once; holding the whole table in memory until the end means an
+  # interruption at the eightieth polygon discards the other seventy-nine.
+  part_path <- file.path(derived, "predictors-structural-partial.csv")
+  drop_path <- file.path(derived, "structural-dropped.csv")
+  append_row <- function(df, path) {
+    write.table(df, path, sep = ",", row.names = FALSE, qmethod = "double",
+                col.names = !file.exists(path), append = file.exists(path))
+  }
+  done_ids <- character(0)
+  for (p in c(part_path, drop_path))
+    if (file.exists(p)) done_ids <- c(done_ids, read.csv(p)$poly_id)
+  if (length(done_ids))
+    message("resuming: ", length(done_ids), " polygons already recorded")
+
   for (i in seq_len(n_all)) {
+    if (poly_id[i] %in% done_ids) next
     r <- tryCatch(one_polygon(i),
                   error = function(e) paste("error:", conditionMessage(e)))
     if (is.character(r) || is.null(r)) {
       why <- if (is.null(r)) "unknown" else r
-      drops[[length(drops) + 1L]] <- data.frame(poly_id = poly_id[i],
-                                                reason = why,
-                                                stringsAsFactors = FALSE)
+      # A polygon that produced no metrics is written out with its reason, so
+      # the difference between the frozen sample and this table is auditable
+      # rather than a silent shrinkage.
+      append_row(data.frame(poly_id = poly_id[i], reason = why,
+                            stringsAsFactors = FALSE), drop_path)
       message(sprintf("  %s DROPPED (%d of %d): %s", poly_id[i], i, n_all, why))
     } else {
-      rows[[length(rows) + 1L]] <- r
+      append_row(r, part_path)
       message(sprintf("  %s ok (%d of %d)", poly_id[i], i, n_all))
     }
     invisible(gc())
   }
-  tab <- do.call(rbind, rows)
-  # Every polygon that produced no metrics is written out with the reason, so
-  # the difference between the frozen sample and this table is auditable rather
-  # than a silent shrinkage.
-  if (length(drops))
-    write.csv(do.call(rbind, drops),
-              file.path(derived, "structural-dropped.csv"), row.names = FALSE)
+  tab <- read.csv(part_path, stringsAsFactors = FALSE)
+  tab <- tab[order(tab$poly_id), ]
+  drops <- if (file.exists(drop_path))
+    read.csv(drop_path, stringsAsFactors = FALSE) else data.frame()
   tab <- tab[order(tab$poly_id), ]
 
   # The guard that matters: no label may leave this block. lidar_year is a
@@ -274,7 +289,7 @@ if (!file.exists(struct_path)) local({
               paste0("CHM cell below ", CANOPY_MIN_H,
                      " m or empty, in contiguous patches of at least ",
                      GAP_MIN_AREA, " m2"),
-              BUFFER_M, n_all, nrow(tab), length(drops),
+              BUFFER_M, n_all, nrow(tab), nrow(drops),
               min(tab$dens_raw), median(tab$dens_raw), max(tab$dens_raw),
               median(tab$dens_used), as.character(Sys.Date())),
     stringsAsFactors = FALSE), struct_log, row.names = FALSE)
