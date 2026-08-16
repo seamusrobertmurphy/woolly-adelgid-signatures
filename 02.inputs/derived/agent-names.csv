@@ -1,0 +1,45 @@
+PEST_SPECIES_CODE,PEST_SPECIES_COMMON_NAME,PEST_SPECIES_LATIN_NAME
+A,Animal Damage,
+AB,Bear,Ursa spp.
+AD,Deer,Odocoileus spp.
+AH,Hare or Rabbit,Lepus spp. or Oryctolagus spp.
+DF,Foliage Diseases,
+DFH,Larch Needle Blight,Hypodermella laricis
+DFL,Pine Needle Cast,Lophodermella concolor
+DFS,Dothistroma Needle Blight,Dothistroma septosporum
+DLS,Sclerophoma Shoot Dieback,Sydowia polyspora
+DLV,Aspen-Poplar Twig Blight,Venturia spp.
+DRL,Laminated Root Rot,Coniferiporia sulphurascens
+DSB,White Pine Blister Rust,Cronartium ribicola
+DSC,Comandra Blister Rust,Cronartium comandrae
+IBB,Western Balsam Bark Beetle,Dryocoetes confusus
+IBD,Douglas-fir Beetle,Dendroctonus pseudotsugae
+IBE,Silver Fir Beetle,Pseudohylesinus sericeus
+IBI,Engraver Beetles,Ips spp.
+IBM,Mountain Pine Beetle,Dendroctonus ponderosae
+IBS,Spruce Beetle,Dendroctonus rufipennis
+ID,Defoliators,
+ID6,Aspen Leaf Miner,Phyllocristis populiella
+ID9,Birch Leaf Skeletonizer,Buccalatrix spp.
+IDB,Two-year Budworm,Choristoneura biennis
+IDF,Forest Tent Caterpillar,Malacosoma disstria
+IDH,Western Blackheaded Budworm,Acleris gloverana
+IDI,Pine Needle Sheath Miner,Zellaria haimbachi
+IDN,Lyonetia Miner,Lyonetia spp.
+IDU,Satin Moth,Leucoma salicis
+IDW,Western Spruce Budworm,Choristoneura freemani
+IDX,Large Aspen Tortrix,Choristoneura conflictana
+IEA,Unidentified Aspen Defoliation,Unidentified Aspen Defoliation
+NB,Fire,
+NBP,Post-burn Mortality,
+NCA,Aspen Decline,
+NCY,Yellow cedar (Yc) Decline,
+ND,Drought,
+NDF,Drought - Foliage Loss/Damage,
+NDM,Drought - Mortality,
+NDW,"Drought, Heat, Woodborer Mortality Complex",
+NF,Flooding,
+NS,Slide,
+NW,Windthrow,
+NWT,Windthrow - Treatment or Harvest-related,
+TM,Other Mechanical Damage (non-logging),

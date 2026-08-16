@@ -77,9 +77,9 @@ Lidar point cloud coverage over the study area and over the Comox field window. 
 
 ## Figure 3
 
-Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Rings mark 50, 100 and 150 km from Comox and are shown for travel planning only, not as a selection criterion. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005).
+Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005).
 
-![Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Rings mark 50, 100 and 150 km from Comox and are shown for travel planning only, not as a selection criterion. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005).](03.outputs/figures/fig-fieldsites-1.png)
+![Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005).](03.outputs/figures/fig-fieldsites-1.png)
 
 
 ## Figure 4

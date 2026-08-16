@@ -217,6 +217,9 @@ admin  <- sf::st_read(bm, "admin",  quiet = TRUE)
 rivers <- sf::st_read(bm, "rivers", quiet = TRUE)
 lakes  <- sf::st_read(bm, "lakes",  quiet = TRUE)
 places <- sf::st_read(bm, "places", quiet = TRUE)
+# Comox carries no cartographic role here: the study is located by data
+# availability rather than by proximity to a field base.
+places <- places[places$name != "Comox", ]
 hs <- terra::rast(file.path(derived, "hillshade.tif"))
 # The view rectangle, not the extent of the land. Land and relief are prepared
 # wider than the view so that the fixed aspect ratio, which expands the shorter
@@ -225,6 +228,16 @@ frame_box <- sf::st_read(bm, "frame", quiet = TRUE)
 
 vi_p <- sf::st_transform(vi, BC_ALBERS)
 fr <- sf::st_bbox(frame_box)
+
+# Everything is cropped to the frame the graticule labels describe. The layers
+# were prepared wider than the view on purpose, so that a fixed aspect ratio
+# expanding the shorter axis does not open a band of sea where the mainland
+# belongs, but what is drawn must still stop at the rectangle the axes label.
+to_frame <- function(x) suppressWarnings(
+  sf::st_crop(sf::st_make_valid(x), frame_box))
+land <- to_frame(land); lakes <- to_frame(lakes)
+rivers <- to_frame(rivers); admin <- to_frame(admin)
+hs <- terra::crop(hs, terra::ext(fr[c("xmin", "xmax", "ymin", "ymax")]))
 
 op <- par(mar = c(3.0, 3.6, 0.5, 0.5), xaxs = "i", yaxs = "i")
 plot(NA, xlim = fr[c("xmin", "xmax")], ylim = fr[c("ymin", "ymax")],
@@ -457,7 +470,7 @@ Ground confirmation requires polygons that carry both an adelgid label and lidar
 
 ```{r}
 #| label: fig-fieldsites
-#| fig-cap: "Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Rings mark 50, 100 and 150 km from Comox and are shown for travel planning only, not as a selection criterion. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005)."
+#| fig-cap: "Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005)."
 #| fig-width: 7.2
 #| fig-height: 7.4
 #| out-width: "100%"
@@ -475,10 +488,14 @@ cand_sf <- sf::st_transform(
 lidar_env <- sf::st_read(file.path(derived, "lidar-coverage-dissolved.gpkg"),
                          quiet = TRUE)
 acc <- sf::st_read(file.path(derived, "field-access-places.gpkg"), quiet = TRUE)
-comox <- sf::st_transform(
-  sf::st_sfc(sf::st_point(c(-124.928, 49.673)), crs = 4326), BC_ALBERS)
+acc <- acc[acc$name != "Comox", ]
 
 fr <- sf::st_bbox(frame_box)
+# Cropped to the frame the graticule labels describe, as in the study area map.
+to_frame <- function(x) suppressWarnings(
+  sf::st_crop(sf::st_make_valid(x), frame_box))
+land <- to_frame(land); lidar_env <- to_frame(lidar_env)
+
 op <- par(mar = c(3.0, 3.6, 0.5, 0.5), xaxs = "i", yaxs = "i")
 plot(NA, xlim = fr[c("xmin", "xmax")], ylim = fr[c("ymin", "ymax")],
      asp = 1, axes = FALSE, xlab = "", ylab = "")
@@ -494,12 +511,6 @@ plot(sf::st_geometry(rivers), col = "#7ba6c4", lwd = 0.6, add = TRUE)
 plot(sf::st_geometry(lidar_env), col = "#b9d9b0", border = "#7fae74",
      lwd = 0.3, add = TRUE)
 
-# Distance rings from Comox. Straight line, not road distance.
-for (d in c(50, 100, 150)) {
-  plot(sf::st_geometry(sf::st_buffer(comox, d * 1000)), col = NA,
-       border = "grey30", lty = 3, lwd = 0.8, add = TRUE)
-}
-
 sev_col <- c(T = "#f0c987", L = "#e08a45", M = "#c1372f", S = "#7d1d18",
              V = "#4a0f0c")
 cxy <- sf::st_coordinates(cand_sf)
@@ -512,16 +523,11 @@ points(cxy[has_lidar, , drop = FALSE], pch = 16,
 
 axy <- sf::st_coordinates(acc)
 points(axy, pch = 22, bg = "white", col = "grey15", cex = 0.8, lwd = 0.7)
-# Comox is drawn separately as the field base, so its label is suppressed here
-# and Courtenay is thrown left to clear the diamond.
+# Every settlement is drawn the same way. The study is located by data
+# availability, so no single town is privileged as a field base.
 side <- ifelse(acc$name == "Courtenay", 2, 4)
-keep <- acc$name != "Comox"
-text(axy[keep, 1], axy[keep, 2], acc$name[keep], pos = side[keep],
-     offset = 0.35, cex = 0.55, col = "grey10")
-points(sf::st_coordinates(comox), pch = 23, bg = "black", col = "black",
-       cex = 1.2)
-text(sf::st_coordinates(comox)[1], sf::st_coordinates(comox)[2], "Comox",
-     pos = 4, offset = 0.45, cex = 0.6, font = 2, col = "black")
+text(axy[, 1], axy[, 2], acc$name, pos = side, offset = 0.35,
+     cex = 0.55, col = "grey10")
 
 xt <- pretty(fr[c("xmin", "xmax")], 5); yt <- pretty(fr[c("ymin", "ymax")], 5)
 xdeg <- sf::sf_project(paste0("EPSG:", BC_ALBERS), "EPSG:4326",
@@ -551,11 +557,11 @@ polygon(c(nx, nx - a * 0.40, nx, nx + a * 0.40),
 text(nx, ny + 1.55 * a, "N", cex = 0.78, font = 2, col = "grey15")
 
 legend("topright", inset = 0.012, bg = "white", box.col = "grey55", cex = 0.58,
-       pch = c(16, 1, 22, 23, NA), pt.bg = c(NA, NA, "white", "black", NA),
-       col = c("grey25", "grey25", "grey15", "black", "#7fae74"),
-       lty = c(NA, NA, NA, NA, 1), lwd = c(NA, NA, NA, NA, 6),
+       pch = c(16, 1, 22, 22), pt.bg = c(NA, NA, "white", "#7fae74"),
+       col = c("grey25", "grey25", "grey15", "#5a8a50"),
+       pt.cex = c(1, 1, 1, 1.3),
        legend = c("Adelgid polygon, lidar", "Adelgid polygon, no lidar",
-                  "Settlement", "Comox", "Lidar coverage"))
+                  "Settlement", "Lidar coverage"))
 legend("bottomright", inset = 0.012, bg = "white", box.col = "grey55",
        cex = 0.58, pch = 16, col = sev_col,
        legend = c("Trace", "Light", "Moderate", "Severe"), title = "Severity")
