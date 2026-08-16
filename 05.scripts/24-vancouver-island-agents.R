@@ -160,15 +160,11 @@ text(nx, ny + ah * 1.24, "N", cex = 0.62, font = 2)
 rest_by_class <- sort(table(pol_c$agent_class[rest]), decreasing = TRUE)
 legend("topright", inset = 0.010, bg = "white", box.col = "grey55",
        box.lwd = 0.7, cex = 0.55, pch = 22, pt.cex = 1.1, col = "grey30",
-       pt.bg = acols[seq_along(named)], title.adj = 0,
-       title = "Agent, twelve most recorded",
+       pt.bg = acols[seq_along(named)],
        legend = paste0(named, " (", as.integer(top[named]), ")"))
 legend("bottomright", inset = 0.010, bg = "white", box.col = "grey55",
        box.lwd = 0.7, cex = 0.55, pch = 22, pt.cex = 1.1, col = "grey30",
        pt.bg = c(class_cols[names(rest_by_class)], pal[length(pal)]),
-       title.adj = 0,
-       title = paste0("Remaining ", length(top) - length(named),
-                      " agents, by class"),
        legend = c(paste0(names(rest_by_class), " (",
                          as.integer(rest_by_class), ")"), "Lidar tile"))
 mtext(paste0("Forest health damage agents, ", FIRST_YEAR, " to ",
