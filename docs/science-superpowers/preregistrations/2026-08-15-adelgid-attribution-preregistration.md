@@ -140,3 +140,53 @@ exploratory.
 Amendments are legitimate only while no outcome value has been read, plotted or joined to
 a predictor. Each is dated, states what it changes and what it leaves unchanged, and
 states the evidence that the outcome data were still untouched.
+
+---
+
+### Amendment 1, 2026-08-15
+
+**Evidence the outcome data are still untouched.** No model has been fitted. The label has
+been read only for the inclusion counts already reported. No predictor value has been
+joined to, crossed with, plotted against or summarised by any label. The structural table
+is being rebuilt by this amendment, so the values it will contain do not yet exist.
+
+**What changes, and why.** Raised by Seamus on 2026-08-15, that the metric set must
+answer to the biology and to the prior literature on where the adelgid signal sits.
+
+1. **The structural family gains three variables**, from 12 to 15: canopy permeability
+   `rh10`, the height below which a tenth of all returns above 0.5 m fall; `p_mid`, the
+   proportion of returns from 5 to 15 m; and `p_under`, the proportion below 5 m. The
+   reason is @Boucher_2020, who found midstorey plant area at 11 to 12 m and canopy
+   permeability by RH10 accounted for 60 percent of the variation in hemlock mortality
+   because the insect defoliates from the midstorey and understorey upward, and
+   @Garris_2019, who locate the optical signal in the same stratum. The metric set as
+   frozen was weighted to the overstorey and would have looked in the wrong place.
+2. **The common density target rises from 8 to 16 points per square metre**, because the
+   three new variables depend on pulses reaching the lower canopy and the archive supports
+   it: delivered density has a median of 43.9 per polygon.
+3. **The density floor stays at 4 points per square metre**, set by what the canopy model
+   cell rule requires. Polygons between the floor and the target are not at common
+   density, so **achieved density is carried as a covariate in every model**, on the same
+   footing as terrain, and a **sensitivity analysis restricted to polygons at target** is
+   reported alongside the primary result.
+4. **Lidar processing adopts two methods from the lidar-forestry book**
+   (github.com/seamusrobertmurphy/lidar-forestry, commit `7de4140`): statistical outlier
+   removal for noise, `sor(k = 10, m = 3)`, and a triangulated canopy model,
+   `dsmtin(max_edge = 8)`, whose edge limit doubles as the gap rule. The book's inverse
+   distance terrain interpolator [@Tu_2020] is **not** adopted, and the deviation is
+   measured rather than asserted: on one polygon the two surfaces agree to 0.19 m at
+   r = 0.9999, but triangulation runs in 5.1 s against 61 s and leaves 180 cells to
+   nearest-neighbour fallback against 71,357, because the book's 50 m search radius is
+   tuned to a 1 ha clip and these polygons reach 353 ha. Cloth simulation filtering
+   [@Zhang_2016] is not needed because the tiles carry a delivered ground class.
+
+**What is unchanged.** The hypotheses, the decision rules, the inconclusive case, the
+blocking scheme, the model specification and fixed hyperparameters, the bootstrap and its
+seed, and inclusion criteria 1, 2 and 4. The sample count under criterion 3 will be
+restated once the rebuild completes, since the achieved density changes with the target.
+
+**Stated expectation, recorded before the result.** @Choi_2023 found the structural
+impact of press disturbances "could not be clearly detected, likely because of
+compensatory growth". Adelgid damage is a press disturbance. This amendment improves the
+chance of finding a signal if one exists; it does not make a null less likely to be true,
+and a null remains the outcome to be reported plainly if it is what the data give.

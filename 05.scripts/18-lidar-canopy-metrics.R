@@ -49,10 +49,30 @@ CANOPY_MIN_H <- 2     # m, the canopy threshold, shared by cover and gap fractio
 CHM_RES      <- 1     # m, canopy height model resolution
 DTM_RES      <- 1     # m, terrain surface resolution
 GAP_MIN_AREA <- 4     # m2, smallest patch of low canopy counted as a gap
-TARGET_DENS  <- 8     # points per m2, the common density, the programme nominal
+# The common density is raised from the 8 of the programme nominal because the
+# midstorey and permeability metrics below depend on pulses reaching the lower
+# canopy, and the delivered archive supports it: per-polygon delivered density
+# has a median of 43.9 and raising the target from 8 to 16 costs three polygons.
+TARGET_DENS  <- 16    # points per m2, the common density
+UNDER_TOP    <- 5     # m, top of the understorey stratum
+MID_TOP      <- 15    # m, top of the midstorey stratum, spanning the 11 to 12 m
+                      # band in which @Boucher_2020 located the adelgid signal
+# The book interpolates terrain at 0.5 m on a 1 ha clip. These polygons run to
+# 353 ha, where 0.5 m is 14 million cells and inverse distance weighting takes
+# a quarter of an hour for one polygon. The interpolator is kept and the
+# resolution matched to the 1 m canopy model, which discards finer terrain
+# detail anyway.
+DTM_RES_FINE <- 1.0   # m, terrain resolution
 
 if (!file.exists(struct_path)) local({
   library(lidR)
+  # lidR defaults to one thread here. The interpolation and decimation steps
+  # below are the run's cost and both parallelise, so give them half the cores
+  # and leave the rest for the operating system on an 8 GB machine.
+  # This lidR build carries no OpenMP support, so the thread setting has no
+  # effect and every step below is single threaded. Recorded because it is the
+  # reason the run is measured in hours.
+  lidR::set_lidr_threads(4L)
 
   a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
   n_all <- nrow(a)
@@ -90,6 +110,12 @@ if (!file.exists(struct_path)) local({
     if (length(z) < 100) return(NULL)
     first <- las@data[las@data$ReturnNumber == 1L, ]
     zf <- first$Z[is.finite(first$Z)]
+
+    # The full profile, not only the canopy, because the three variables below
+    # describe what happens beneath it. Returns are taken from 0.5 m upward so
+    # that ground and near-ground returns do not dominate the proportions.
+    zall <- las@data$Z
+    zall <- zall[is.finite(zall) & zall >= 0.5]
 
     q <- stats::quantile(z, c(.25, .50, .75, .95, .99), names = FALSE)
     # The 99th percentile stands in for the maximum throughout. The delivered
@@ -134,6 +160,18 @@ if (!file.exists(struct_path)) local({
       chm_sd = if (length(v_in) > 1) stats::sd(v_in) else NA_real_,
       cv_first = if (length(zf) > 1 && mean(zf) != 0)
         stats::sd(zf) / mean(zf) else NA_real_,
+      # Family 4, the lower profile, following @Boucher_2020, who located 60
+      # percent of the variation in hemlock mortality in midstorey plant area
+      # and canopy permeability rather than in the overstorey.
+      # rh10 is the height below which a tenth of returns fall, the discrete
+      # return analogue of the waveform RH10 that paper used for permeability:
+      # a canopy thinning from beneath lets pulses deeper and lowers it.
+      rh10 = if (length(zall) > 10)
+        stats::quantile(zall, 0.10, names = FALSE) else NA_real_,
+      p_mid = if (length(zall))
+        sum(zall >= UNDER_TOP & zall < MID_TOP) / length(zall) else NA_real_,
+      p_under = if (length(zall))
+        sum(zall < UNDER_TOP) / length(zall) else NA_real_,
       # Family 3, density and openness, the control
       cover = if (length(zf)) sum(zf >= CANOPY_MIN_H) / length(zf) else NA_real_,
       gap_frac = gap_frac,
@@ -170,6 +208,14 @@ if (!file.exists(struct_path)) local({
                       error = function(e) NULL)
       if (is.null(las) || lidR::is.empty(las)) next
 
+      # Noise removal before anything else, by statistical outlier removal,
+      # following the lidar-forestry book. Without it a single high return sets
+      # the canopy ceiling and every ratio built on it collapses towards zero.
+      las <- tryCatch(lidR::classify_noise(las, lidR::sor(k = 10, m = 3)),
+                      error = function(e) las)
+      las <- lidR::filter_poi(las, Classification != LASNOISE)
+      if (lidR::is.empty(las)) next
+
       # Ground at full density: the terrain surface should be as good as the
       # delivery allows, and ground returns are a small share of the whole.
       g <- lidR::filter_poi(las, Classification == 2L)
@@ -178,8 +224,8 @@ if (!file.exists(struct_path)) local({
       # Everything else brought down towards the common density with a margin,
       # so the merged cloud never holds the delivered density.
       dens <- tn$density_actual[match(tl$filename[k], tn$filename)]
-      v <- if (is.finite(dens) && dens > TARGET_DENS * 3)
-        lidR::decimate_points(las, lidR::random(TARGET_DENS * 3)) else las
+      v <- if (is.finite(dens) && dens > TARGET_DENS * 2)
+        lidR::decimate_points(las, lidR::random(TARGET_DENS * 2)) else las
       if (!lidR::is.empty(v)) veg[[length(veg) + 1L]] <- v
       rm(las); invisible(gc())
     }
@@ -199,7 +245,16 @@ if (!file.exists(struct_path)) local({
 
     # Terrain from class 2 returns only. The delivered tiles carry no vegetation
     # classes, so ground is the one class that can be trusted.
-    dtm <- tryCatch(lidR::rasterize_terrain(g, res = DTM_RES,
+    # Triangulation rather than the inverse distance weighting the
+    # lidar-forestry book prefers [@Tu_2020], and the deviation is measured
+    # rather than assumed. On one polygon's 806,000 ground returns the two
+    # surfaces agree to 0.19 m with a correlation of 0.9999, but triangulation
+    # takes 5.1 s against 61 s and leaves 180 cells to nearest-neighbour
+    # fallback against 71,357. The book's parameters are tuned to a 1 ha clip;
+    # these polygons reach 353 ha, where a 50 m search radius is often empty.
+    # The tiles carry a delivered ground class, so the cloth simulation filter
+    # the book applies to unclassified data is not needed [@Zhang_2016].
+    dtm <- tryCatch(lidR::rasterize_terrain(g, res = DTM_RES_FINE,
                                             algorithm = lidR::tin()),
                     error = function(e) NULL)
     if (is.null(dtm)) return("terrain surface could not be interpolated")
@@ -212,8 +267,11 @@ if (!file.exists(struct_path)) local({
                   error = function(e) v)
     dens_used <- nrow(v@data) / area_m2
 
+    # Triangulated surface with an 8 m maximum edge, following the
+    # lidar-forestry book. The edge limit is also the gap rule: an opening wider
+    # than 8 m is left empty rather than interpolated across.
     chm <- tryCatch(lidR::rasterize_canopy(v, res = CHM_RES,
-                                           algorithm = lidR::p2r(subcircle = 0.15)),
+                                           algorithm = lidR::dsmtin(max_edge = 8)),
                     error = function(e) NULL)
     if (is.null(chm)) return("canopy height model could not be built")
 
