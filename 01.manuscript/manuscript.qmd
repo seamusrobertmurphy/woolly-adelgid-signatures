@@ -2147,6 +2147,9 @@ GAP_MIN_AREA <- 4     # m2, smallest patch of low canopy counted as a gap
 # canopy, and the delivered archive supports it: per-polygon delivered density
 # has a median of 43.9 and raising the target from 8 to 16 costs three polygons.
 TARGET_DENS  <- 16    # points per m2, the common density
+DENS_FLOOR   <- 4     # points per m2, below which the canopy model cell
+                      # rule fails: at 4 only 1.8 percent of 1 m cells are
+                      # empty from pulse spacing alone, at 2 it is 13.5
 UNDER_TOP    <- 5     # m, top of the understorey stratum
 MID_TOP      <- 15    # m, top of the midstorey stratum, spanning the 11 to 12 m
                       # band in which @Boucher_2020 located the adelgid signal
@@ -2473,6 +2476,190 @@ local({
 })
 ```
 
+## Spatial blocks
+
+Blocking is the design choice most likely to determine the result on a sample this size, so it is built here, from geometry alone, before any label is joined and before any model is fitted. The chunk reads polygon centroids and nothing else: no predictor value and no agent code enters it.
+
+Polygons that overlap or lie within 50 m of one another are forced into the same block before clustering, because the survey digitises adjacent damage as separate records and treating those as independent would leak directly across folds. The forced groups are then clustered by partitioning around medoids, and whole blocks are assigned to folds so that no fold holds fewer than two blocks.
+
+```{r}
+#| label: pipe-blocks
+#| echo: true
+#| output: false
+blocks_path <- file.path(derived, "spatial-blocks.csv")
+N_FOLDS <- 5L
+N_BLOCKS <- 10L      # two blocks per fold at least, per the pre-registration
+ADJ_M <- 50          # polygons within this distance share a block
+SEED <- 20260815L
+
+if (!file.exists(blocks_path)) local({
+  a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+  poly_id <- sprintf("P%03d", seq_len(nrow(a)))
+  eroded <- sf::st_buffer(sf::st_transform(sf::st_geometry(a), BC_ALBERS),
+                          -BUFFER_M)
+  rm(a)
+
+  # The sample the models will see: polygons with structural metrics at or above
+  # the density floor. Blocking is built on exactly those units so that fold
+  # sizes are the ones actually used.
+  st <- read.csv(struct_path, stringsAsFactors = FALSE)
+  keep_id <- st$poly_id[st$dens_used >= DENS_FLOOR]
+  k <- match(keep_id, poly_id)
+  eroded <- eroded[k]
+
+  # Forced groups first: connected components of the within-50 m graph.
+  nb <- sf::st_is_within_distance(eroded, eroded, dist = ADJ_M)
+  grp <- seq_along(nb)
+  repeat {
+    changed <- FALSE
+    for (i in seq_along(nb)) {
+      g <- min(grp[nb[[i]]])
+      if (any(grp[nb[[i]]] != g)) { grp[nb[[i]]] <- g; changed <- TRUE }
+    }
+    if (!changed) break
+  }
+  grp <- as.integer(factor(grp))
+
+  ctr <- sf::st_coordinates(sf::st_centroid(eroded))
+  # One representative point per forced group, so clustering cannot split a
+  # group that must stay together.
+  gc_x <- tapply(ctr[, 1], grp, mean); gc_y <- tapply(ctr[, 2], grp, mean)
+  gpts <- cbind(as.numeric(gc_x), as.numeric(gc_y))
+
+  set.seed(SEED)
+  nb_use <- min(N_BLOCKS, nrow(gpts))
+  pam_fit <- cluster::pam(gpts, k = nb_use)
+  block_of_group <- pam_fit$clustering
+  block <- block_of_group[grp]
+
+  # Whole blocks to folds, largest first into the emptiest fold, so folds are
+  # balanced on size and on nothing else. The label is not consulted.
+  sizes <- sort(table(block), decreasing = TRUE)
+  fold_of_block <- integer(0)
+  load <- rep(0L, N_FOLDS)
+  for (b in names(sizes)) {
+    f <- which.min(load)
+    fold_of_block[b] <- f
+    load[f] <- load[f] + as.integer(sizes[[b]])
+  }
+  fold <- as.integer(fold_of_block[as.character(block)])
+
+  out <- data.frame(poly_id = keep_id, block = as.integer(block), fold = fold,
+                    forced_group = grp,
+                    x = ctr[, 1], y = ctr[, 2], stringsAsFactors = FALSE)
+  write.csv(out, blocks_path, row.names = FALSE)
+})
+```
+
+```{r}
+#| label: pipe-blocks-out
+local({
+  b <- read.csv(blocks_path)
+  fmt_tbl(data.frame(
+    Fold = seq_len(max(b$fold)),
+    Blocks = as.integer(tapply(b$block, b$fold, function(x) length(unique(x)))),
+    Polygons = as.integer(table(b$fold))))
+})
+```
+
+## Pipeline test
+
+No claim is made from the real data until the machinery has been shown to behave on data whose truth is known. The test builds a synthetic sample of the same shape as the real one, the same number of units, the same predictor counts and the same block and fold structure, under two regimes. In the null regime no predictor carries any signal and the pipeline must return balanced accuracy near one half with paired differences whose intervals span zero. In the planted regime a known subset of the structural predictors separates the classes and the pipeline must recover a positive difference. A pipeline that passes the second and fails the first is worse than useless, because it manufactures results.
+
+```{r}
+#| label: pipe-synthetic
+#| echo: true
+#| output: false
+synth_path <- file.path(derived, "pipeline-test.csv")
+
+# The estimator, defined once and used by both the test and the real analysis,
+# so the test exercises the code that produces the result rather than a copy.
+balanced_acc <- function(truth, pred, positive = "IAB") {
+  truth <- as.character(truth); pred <- as.character(pred)
+  tp <- sum(truth == positive & pred == positive)
+  fn <- sum(truth == positive & pred != positive)
+  tn <- sum(truth != positive & pred != positive)
+  fp <- sum(truth != positive & pred == positive)
+  sens <- if ((tp + fn) > 0) tp / (tp + fn) else NA_real_
+  spec <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
+  (sens + spec) / 2
+}
+
+# Fit one nested model set over the given folds and return the per-fold
+# balanced accuracy of each. Resampling is applied to training folds only, so
+# reported performance refers to the observed class prevalence.
+run_folds <- function(dat, sets, folds, seed = SEED) {
+  out <- lapply(names(sets), function(nm) {
+    vapply(sort(unique(folds)), function(f) {
+      tr <- dat[folds != f, , drop = FALSE]
+      te <- dat[folds == f, , drop = FALSE]
+      if (length(unique(tr$y)) < 2 || nrow(te) == 0) return(NA_real_)
+      # Upsample the minority class within the training fold only.
+      n_max <- max(table(tr$y))
+      set.seed(seed + f)
+      idx <- unlist(lapply(unique(tr$y), function(l) {
+        w <- which(tr$y == l)
+        if (length(w) == n_max) w else sample(w, n_max, replace = TRUE)
+      }))
+      trb <- tr[idx, , drop = FALSE]
+      vars <- sets[[nm]]
+      fit <- ranger::ranger(
+        x = trb[, vars, drop = FALSE], y = factor(trb$y),
+        num.trees = 1000L, mtry = max(1L, floor(sqrt(length(vars)))),
+        min.node.size = 5L, seed = seed + f, probability = FALSE)
+      p <- predict(fit, data = te[, vars, drop = FALSE])$predictions
+      balanced_acc(te$y, as.character(p))
+    }, numeric(1))
+  })
+  names(out) <- names(sets)
+  out
+}
+
+if (!file.exists(synth_path)) local({
+  library(ranger)
+  b <- read.csv(blocks_path, stringsAsFactors = FALSE)
+  n <- nrow(b)
+  n_spec <- 36L; n_struct <- 15L; n_rad <- 8L; n_cov <- 3L
+  mk <- function(prefix, k) {
+    m <- matrix(stats::rnorm(n * k), n, k)
+    colnames(m) <- paste0(prefix, seq_len(k)); as.data.frame(m)
+  }
+  regime <- function(planted) {
+    set.seed(SEED + as.integer(planted))
+    y <- rep(c("IAB", "IBB"), length.out = n)
+    d <- cbind(mk("s", n_spec), mk("t", n_struct), mk("r", n_rad),
+               mk("c", n_cov))
+    if (planted) {
+      # A known separating signal in three structural predictors only, so a
+      # correct pipeline must show structure beating spectral.
+      shift <- ifelse(y == "IAB", 1.2, -1.2)
+      for (v in c("t1", "t2", "t3")) d[[v]] <- d[[v]] + shift
+    }
+    d$y <- y
+    sets <- list(
+      spectral = c(paste0("s", seq_len(n_spec)), paste0("c", seq_len(n_cov))),
+      structure = c(paste0("s", seq_len(n_spec)), paste0("t", seq_len(n_struct)),
+                    paste0("c", seq_len(n_cov))),
+      all = c(paste0("s", seq_len(n_spec)), paste0("t", seq_len(n_struct)),
+              paste0("r", seq_len(n_rad)), paste0("c", seq_len(n_cov))))
+    ba <- run_folds(d, sets, b$fold)
+    data.frame(regime = if (planted) "planted" else "null",
+               model = names(ba),
+               balanced_accuracy = round(vapply(ba, mean, 0, na.rm = TRUE), 4),
+               diff_from_spectral = round(
+                 vapply(ba, function(v) mean(v - ba$spectral, na.rm = TRUE), 0), 4),
+               stringsAsFactors = FALSE)
+  }
+  write.csv(rbind(regime(FALSE), regime(TRUE)), synth_path, row.names = FALSE)
+})
+```
+
+```{r}
+#| label: tbl-pipeline-test
+#| tbl-cap: "Pipeline test on synthetic data with known truth. The null regime must return balanced accuracy near one half and differences near zero; the planted regime must recover the structural signal."
+fmt_tbl(read.csv(file.path(derived, "pipeline-test.csv")))
+```
+
 ## Generated scripts
 
 `05.scripts/` is written from this document, not maintained beside it. The block below extracts every pipeline chunk with `knitr::purl()` and splits it by chunk label, so each numbered script is the code above and cannot drift from it. It is skipped on a normal render and run deliberately.
@@ -2503,7 +2690,9 @@ local({
                `pipe-optical` = "15-build-optical-predictors.R",
                `pipe-radar` = "16-build-radar-predictors.R",
                `pipe-lidar-fetch` = "17-build-lidar-metrics.R",
-               `pipe-lidar-metrics` = "18-lidar-canopy-metrics.R")
+               `pipe-lidar-metrics` = "18-lidar-canopy-metrics.R",
+               `pipe-blocks` = "19-spatial-blocks.R",
+               `pipe-synthetic` = "20-pipeline-test.R")
 
   header <- c(
     "# GENERATED FILE. Do not edit.",
@@ -2523,6 +2712,8 @@ local({
     `pipe-candidates` = "pipe-tiles", `pipe-coverage` = "pipe-tiles",
     `pipe-lidar-fetch` = "pipe-tiles", `pipe-sample` = "pipe-basemap",
     `pipe-lidar-metrics` = c("pipe-optical", "pipe-lidar-fetch"),
+    `pipe-blocks` = c("pipe-optical", "pipe-lidar-metrics"),
+    `pipe-synthetic` = "pipe-blocks",
     `pipe-radar` = "pipe-optical")
 
   body_of <- function(lab) {

@@ -54,6 +54,9 @@ GAP_MIN_AREA <- 4     # m2, smallest patch of low canopy counted as a gap
 # canopy, and the delivered archive supports it: per-polygon delivered density
 # has a median of 43.9 and raising the target from 8 to 16 costs three polygons.
 TARGET_DENS  <- 16    # points per m2, the common density
+DENS_FLOOR   <- 4     # points per m2, below which the canopy model cell
+                      # rule fails: at 4 only 1.8 percent of 1 m cells are
+                      # empty from pulse spacing alone, at 2 it is 13.5
 UNDER_TOP    <- 5     # m, top of the understorey stratum
 MID_TOP      <- 15    # m, top of the midstorey stratum, spanning the 11 to 12 m
                       # band in which @Boucher_2020 located the adelgid signal
