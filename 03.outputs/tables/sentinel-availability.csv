@@ -1,0 +1,6 @@
+"collection","note","scenes","first","last"
+"COPERNICUS/S2_SR_HARMONIZED","Surface reflectance, L2A",32847,"2015-10-04","2026-08-15"
+"COPERNICUS/S2_HARMONIZED","Top of atmosphere, L1C",37915,"2015-10-04","2026-08-15"
+"GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED","Cloud Score+, per-pixel quality",37904,"2015-10-04","2026-08-15"
+"COPERNICUS/S2_CLOUD_PROBABILITY","s2cloudless probability",40968,"2015-10-04","2026-08-15"
+"COPERNICUS/S1_GRD","SAR GRD, IW mode",5420,"2014-10-16","2026-08-14"
