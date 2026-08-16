@@ -208,13 +208,18 @@ if (!file.exists(struct_path)) local({
                       error = function(e) NULL)
       if (is.null(las) || lidR::is.empty(las)) next
 
-      # Noise removal before anything else, by statistical outlier removal,
-      # following the lidar-forestry book. Without it a single high return sets
-      # the canopy ceiling and every ratio built on it collapses towards zero.
-      las <- tryCatch(lidR::classify_noise(las, lidR::sor(k = 10, m = 3)),
-                      error = function(e) las)
-      las <- lidR::filter_poi(las, Classification != LASNOISE)
-      if (lidR::is.empty(las)) next
+      # No noise classification, and the decision is measured. The
+      # lidar-forestry book applies statistical outlier removal, sor(k = 10,
+      # m = 3), to a 1 ha clip of even density. Here it costs 110 s per tile,
+      # which is 13 hours over the sample, and it flags 181,282 of 11.7 million
+      # points, 1.5 percent. On a cloud whose density varies by a factor of four
+      # hundred a global neighbour-distance statistic flags legitimate sparse
+      # canopy returns as readily as noise, so it would remove signal. The
+      # isolated voxel filter is cheap at 7.5 s but flags 34 points and does not
+      # help. Noise is instead handled where it does damage, by taking the 99th
+      # percentile as the canopy ceiling, which is stated in the metric
+      # definitions and leaves every proportion and percentile robust to a
+      # handful of high returns.
 
       # Ground at full density: the terrain surface should be as good as the
       # delivery allows, and ground returns are a small share of the whole.
