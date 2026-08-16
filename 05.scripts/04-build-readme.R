@@ -79,11 +79,46 @@ blocks <- lapply(floats, function(el) {
 })
 blocks <- Filter(Negate(is.null), blocks)
 
+# Scoping outputs that are not manuscript floats. They are the maps and tables
+# that located the study and that scope its successors, so they belong on the
+# front page even though the paper does not carry them. Listed explicitly rather
+# than globbed, so a stray file in 03.outputs never lands on the README.
+extra_figs <- list(
+  c("fig-vi-agents-1.png", "Island agents",
+    "Forest health damage agents recorded on and around Vancouver Island from 2020 onward, against LidarBC tile coverage. The twelve most recorded agents are named individually and the remaining twenty are coloured by class, so no polygon is filed under an undifferentiated other."),
+  c("fig-adelgid-province-1.png", "Adelgid province-wide",
+    "Balsam woolly adelgid across British Columbia, coloured by survey year. Triangles are moderate or worse severity, outlined black where lidar covers them and grey where it does not; small circles are trace and light."),
+  c("fig-availability-1.png", "Damage and lidar",
+    "Moderate or worse damage in the current survey year across British Columbia, against the extent of public lidar acquisition."))
+extra_tabs <- list(
+  c("vi-agents-2020plus.csv", "Island agent counts",
+    "Every damage agent recorded on and around Vancouver Island from 2020 onward, with polygon counts, the number rated moderate or worse, and area."),
+  c("sentinel-by-year.csv", "Sentinel by year",
+    "Sentinel scenes per year over the Vancouver Island envelope. Radar halves after 2021 with the loss of Sentinel-1B and recovers in 2025 with Sentinel-1C."))
+
+extra <- c()
+for (f in extra_figs) {
+  if (!file.exists(file.path(root, "03.outputs", "figures", f[1]))) next
+  extra <- c(extra, paste0("## ", f[2]), "", f[3], "",
+             sprintf("![%s](03.outputs/figures/%s)", f[3], f[1]), "")
+}
+for (t in extra_tabs) {
+  fp <- file.path(root, "03.outputs", "tables", t[1])
+  if (!file.exists(fp)) next
+  d <- utils::read.csv(fp, stringsAsFactors = FALSE, check.names = FALSE)
+  extra <- c(extra, paste0("## ", t[2]), "", t[3], "", gfm(d), "")
+}
+
 out <- c(paste0("# ", title), "", "## Abstract", "", abstract, "",
          unlist(lapply(blocks, function(b) c(b, ""))))
+if (length(extra))
+  out <- c(out, "## Availability", "",
+           "Maps and tables that located this study and scope its successors. They are not floats in the manuscript.",
+           "", extra)
 writeLines(out, file.path(root, "README.md"))
 
 cat("wrote README.md\n")
 cat("  title:    ", substr(title, 1, 70), "\n")
 cat("  abstract: ", nchar(abstract), "characters\n")
 cat("  floats:   ", length(blocks), "\n")
+cat("  appended: ", length(extra_figs), "figures and", length(extra_tabs), "tables\n")

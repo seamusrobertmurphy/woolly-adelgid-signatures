@@ -199,3 +199,81 @@ Pipeline test on synthetic data with known truth. The null regime must return ba
 | planted | all | 0.9583 | 0.5101 |
 
 
+## Availability
+
+Maps and tables that located this study and scope its successors. They are not floats in the manuscript.
+
+## Island agents
+
+Forest health damage agents recorded on and around Vancouver Island from 2020 onward, against LidarBC tile coverage. The twelve most recorded agents are named individually and the remaining twenty are coloured by class, so no polygon is filed under an undifferentiated other.
+
+![Forest health damage agents recorded on and around Vancouver Island from 2020 onward, against LidarBC tile coverage. The twelve most recorded agents are named individually and the remaining twenty are coloured by class, so no polygon is filed under an undifferentiated other.](03.outputs/figures/fig-vi-agents-1.png)
+
+## Adelgid province-wide
+
+Balsam woolly adelgid across British Columbia, coloured by survey year. Triangles are moderate or worse severity, outlined black where lidar covers them and grey where it does not; small circles are trace and light.
+
+![Balsam woolly adelgid across British Columbia, coloured by survey year. Triangles are moderate or worse severity, outlined black where lidar covers them and grey where it does not; small circles are trace and light.](03.outputs/figures/fig-adelgid-province-1.png)
+
+## Damage and lidar
+
+Moderate or worse damage in the current survey year across British Columbia, against the extent of public lidar acquisition.
+
+![Moderate or worse damage in the current survey year across British Columbia, against the extent of public lidar acquisition.](03.outputs/figures/fig-availability-1.png)
+
+## Island agent counts
+
+Every damage agent recorded on and around Vancouver Island from 2020 onward, with polygon counts, the number rated moderate or worse, and area.
+
+| code | agent | class | polygons | mod_plus | area_ha |
+|---|---|---|---|---|---|
+| IBB | Western balsam bark beetle | Bark beetle | 875 | 44 | 41839 |
+| IBM | Mountain pine beetle | Bark beetle | 681 | 42 | 84465 |
+| IDW | Western spruce budworm | Defoliator | 289 | 65 | 53725 |
+| NDF | Drought, foliage loss | Abiotic | 276 | 50 | 20589 |
+| IDL | Western hemlock looper | Defoliator | 180 | 76 | 15112 |
+| NCY | Yellow cedar decline | Abiotic | 158 | 13 | 3950 |
+| NB | Fire | Abiotic | 157 | 156 | 17218 |
+| DSB | White pine blister rust | Disease | 150 | 4 | 17560 |
+| NW | Windthrow | Abiotic | 124 | 122 | 1739 |
+| IAB | Balsam woolly adelgid | Sap feeder | 104 | 9 | 6253 |
+| IBD | Douglas-fir beetle | Bark beetle | 92 | 26 | 13390 |
+| NF | Flooding | Abiotic | 80 | 70 | 926 |
+| NS | Slide | Abiotic | 78 | 77 | 1851 |
+| IBS | Spruce beetle | Bark beetle | 50 | 21 | 1423 |
+| NBP | Post-burn mortality | Abiotic | 50 | 47 | 874 |
+| NDM | Drought, mortality | Abiotic | 42 | 4 | 670 |
+| IDS | Conifer sawfly | Defoliator | 39 | 21 | 8511 |
+| ID | Defoliators, group | Defoliator | 24 | 24 | 4280 |
+| AB | Bear | Animal | 23 | 0 | 212 |
+| DRL | Laminated root rot | Disease | 21 | 0 | 744 |
+| ND | Drought | Abiotic | 12 | 6 | 289 |
+| DRA | Armillaria root disease | Disease | 10 | 1 | 198 |
+| DF | Foliage diseases, group | Disease | 8 | 8 | 884 |
+| D | Disease, group not specified | Disease | 7 | 7 | 155 |
+| DLV | Aspen-poplar twig blight | Disease | 3 | 1 | 28 |
+| NWT | Windthrow, harvest related | Abiotic | 3 | 3 | 21 |
+| DFW | Foliage disease, code absent from standards | Disease | 1 | 1 | 41 |
+| DR | Root diseases, group | Disease | 1 | 0 | 20 |
+| IDF | Forest tent caterpillar | Defoliator | 1 | 1 | 5 |
+| IDT | Douglas-fir tussock moth | Defoliator | 1 | 1 | 91 |
+| NY | Abiotic, code absent from standards | Abiotic | 1 | 0 | 6 |
+| TM | Other mechanical damage | Abiotic | 1 | 1 | 5 |
+
+## Sentinel by year
+
+Sentinel scenes per year over the Vancouver Island envelope. Radar halves after 2021 with the loss of Sentinel-1B and recovers in 2025 with Sentinel-1C.
+
+| year | s2_l2a | cloud_score_plus | s1_iw |
+|---|---|---|---|
+| 2017 | 612 | 1638 | 483 |
+| 2018 | 1323 | 3713 | 578 |
+| 2019 | 3870 | 3870 | 645 |
+| 2020 | 3895 | 3895 | 677 |
+| 2021 | 3821 | 3823 | 676 |
+| 2022 | 3828 | 3828 | 301 |
+| 2023 | 3830 | 3811 | 390 |
+| 2024 | 3838 | 3833 | 369 |
+| 2025 | 4512 | 4513 | 486 |
+| 2026 | 2903 | 2893 | 253 |
+
