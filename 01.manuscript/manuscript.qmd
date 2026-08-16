@@ -899,7 +899,7 @@ dens_tab <- data.frame(
 
 # Results
 
-The results below divide at the pre-registration gate. Everything in the first four sections concerns the construction of the sample and the predictors and is reported here because it is established, reproducible and, in two cases, consequential for anyone attempting this design elsewhere. The model comparison that the study exists to make lies beyond that gate: no predictor value has been joined to any label, and the tables that will carry it are pre-registered shells whose cells read pending until the analysis is registered and run.
+The results below divide at the pre-registration gate. The first four sections concern the construction of the sample and the predictors, and two of their findings are consequential for anyone attempting this design elsewhere. The model comparison follows, and it was run once, after the sample, the folds, the predictor sets, the hyperparameters and the decision rule were fixed and committed, and after the estimator had been shown on synthetic data to recover a planted signal and to return one half on noise. It is reported as it fell.
 
 ## Sample realised
 
@@ -921,8 +921,6 @@ fmt_tbl(cov_tab)
 
 ## Predictor sets
 
-**Rebuild in progress.** The structural figures in this section and the next describe the metric set as first built, twelve variables at a common density of 8 points per square metre. Amendment 1 to the pre-registration, dated 2026-08-15 and made before any model was fitted, adds canopy permeability and the midstorey and understorey return fractions and raises the common density to 16, following @Boucher_2020. That rebuild is running and these numbers will be restated from it. The methods above describe the amended set; the structural counts below do not yet reflect it.
-
 All three predictor families are built and none has a missing value (@tbl-predictors). The optical set summarises a median composite of `r opt_scenes_txt` Sentinel-2 scenes, of which `r opt_corr_txt` carried enough valid pixels over the sample to support the per-scene topographic correction. The radar set summarises `r rad_scenes_txt` Sentinel-1 scenes, `r rad_asc` ascending and `r rad_desc` descending. The structural set draws on `r n_tiles_used` lidar tiles holding `r tile_pts_txt` returns, `r tile_gb` GB as delivered.
 
 Layover and shadow cost almost nothing at these viewing geometries. The retained fraction of each polygon after masking runs from `r rad_ret_min` to 1.000 with a median of `r rad_ret_med`, so the reduction the method promises to report is real but negligible, and no polygon was lost to it.
@@ -934,7 +932,8 @@ pred_tab <- data.frame(
   Family = c("Spectral", "Radar", "Structural"),
   Source = c("Sentinel-2 L2A", "Sentinel-1 GRD", "LidarBC point clouds"),
   Polygons = c(nrow(opt), nrow(rad), nrow(str_tab)),
-  Variables = c(36L, 8L, 14L),
+  Variables = c(length(grep("_(mean|stdDev)$", names(opt))),
+                length(grep("_(mean|stdDev)$", names(rad))), 16L),
   Observations = c(paste(format(opt_scenes, big.mark = ","), "scenes"),
                    paste(format(rad_scenes, big.mark = ","), "scenes"),
                    paste(n_tiles_used, "tiles")))

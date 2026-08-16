@@ -137,7 +137,7 @@ The three predictor families as built, with the imagery and point cloud volumes 
 |---|---|---|---|---|
 | Spectral | Sentinel-2 L2A | 84 | 36 | 1,266 scenes |
 | Radar | Sentinel-1 GRD | 84 | 8 | 673 scenes |
-| Structural | LidarBC point clouds | 72 | 14 | 121 tiles |
+| Structural | LidarBC point clouds | 72 | 16 | 121 tiles |
 
 
 ## Table 10
