@@ -758,7 +758,12 @@ rad <- read.csv(file.path(derived, "predictors-radar.csv"))
 str_tab <- read.csv(file.path(derived, "predictors-structural.csv"))
 opt_log <- read.csv(file.path(derived, "predictors-optical-log.csv"))
 rad_log <- read.csv(file.path(derived, "predictors-radar-log.csv"))
-str_log <- read.csv(file.path(derived, "predictors-structural-log.csv"))
+# The structural log is absent while the metric set is being rebuilt, so the
+# chunk reads it if present and falls back to the table itself. A missing
+# parameter log should not stop the document rendering.
+str_log_path <- file.path(derived, "predictors-structural-log.csv")
+str_log <- if (file.exists(str_log_path)) read.csv(str_log_path) else
+  data.frame(parameter = character(), value = character())
 dropped <- read.csv(file.path(derived, "structural-dropped.csv"))
 tiles_need <- read.csv(file.path(derived, "lidar-tiles-needed.csv"))
 flat <- read.csv(file.path(derived, "radar-flattening-check.csv"))
@@ -771,7 +776,9 @@ aset_pid <- sprintf("P%03d", seq_len(nrow(aset)))
 has_struct <- aset_pid %in% str_tab$poly_id
 
 n_struct <- nrow(str_tab)
-n_dropped_struct <- nrow(dropped)
+# Derived from the two counts rather than read from the drop file, so the
+# column cannot disagree with its own total if that file is mid-rebuild.
+n_dropped_struct <- n_set - n_struct
 n_struct_iab <- sum(aset$PEST_SPECIES_CODE[has_struct] == "IAB")
 n_struct_ibb <- sum(aset$PEST_SPECIES_CODE[has_struct] == "IBB")
 n_drop_iab <- sum(aset$PEST_SPECIES_CODE[!has_struct] == "IAB")
@@ -793,6 +800,7 @@ rad_ret_med <- sprintf("%.3f", median(rad$retained_frac))
 
 n_tiles_used <- nrow(tiles_need)
 tile_gb <- round(sum(as.numeric(tiles_need$bytes)) / 1e9, 1)
+lgv <- function(p, alt) { v <- lg(str_log, p); if (length(v)) v else alt }
 # Counted from the tile headers rather than from the log, which records the
 # delivered volume in bytes.
 tile_pts <- sum(vapply(file.path(inputs, "lidar", tiles_need$year,
@@ -815,7 +823,9 @@ dens_tile_min <- sprintf("%.1f", min(tiles_need$density_actual))
 dens_tile_max <- sprintf("%.1f", max(tiles_need$density_actual))
 dens_tile_med <- sprintf("%.1f", median(tiles_need$density_actual))
 
-target_dens <- as.numeric(lg(str_log, "target_density_pts_m2"))
+target_dens <- suppressWarnings(as.numeric(lg(str_log, "target_density_pts_m2")))
+if (!length(target_dens) || is.na(target_dens))
+  target_dens <- round(max(str_tab$dens_used))
 n_at_target <- sum(str_tab$dens_used >= target_dens * 0.94)
 n_below_target <- n_struct - n_at_target
 n_below_four <- sum(str_tab$dens_used < 4)
@@ -864,6 +874,8 @@ fmt_tbl(cov_tab)
 ```
 
 ## Predictor sets
+
+**Rebuild in progress.** The structural figures in this section and the next describe the metric set as first built, twelve variables at a common density of 8 points per square metre. Amendment 1 to the pre-registration, dated 2026-08-15 and made before any model was fitted, adds canopy permeability and the midstorey and understorey return fractions and raises the common density to 16, following @Boucher_2020. That rebuild is running and these numbers will be restated from it. The methods above describe the amended set; the structural counts below do not yet reflect it.
 
 All three predictor families are built and none has a missing value (@tbl-predictors). The optical set summarises a median composite of `r opt_scenes_txt` Sentinel-2 scenes, of which `r opt_corr_txt` carried enough valid pixels over the sample to support the per-scene topographic correction. The radar set summarises `r rad_scenes_txt` Sentinel-1 scenes, `r rad_asc` ascending and `r rad_desc` descending. The structural set draws on `r n_tiles_used` lidar tiles holding `r tile_pts_txt` returns, `r tile_gb` GB as delivered.
 

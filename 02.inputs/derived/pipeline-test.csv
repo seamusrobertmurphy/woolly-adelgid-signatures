@@ -1,0 +1,7 @@
+"regime","model","balanced_accuracy","diff_from_spectral"
+"null","spectral",0.456,0
+"null","structure",0.4333,-0.0226
+"null","all",0.4786,0.0226
+"planted","spectral",0.5119,0
+"planted","structure",0.9571,0.4452
+"planted","all",0.9286,0.4167

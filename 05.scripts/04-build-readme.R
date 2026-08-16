@@ -1,243 +1,89 @@
-# Generate the root README from the same derived data the manuscript reads.
+# Generate the root README from the rendered manuscript.
 #
-# The README carries the title, subtitle, abstract, and then every figure and
-# table in the order they appear in the manuscript. Generating it rather than
-# writing it by hand means the counts on the front page cannot drift away from
-# the counts in the paper.
+# The README carries the title, the abstract, and then every figure and table
+# the manuscript contains, in the order the manuscript declares them, and
+# nothing else. It is extracted from `01.manuscript/manuscript.html` rather
+# than rebuilt from the derived data, so it cannot disagree with the paper:
+# whatever the manuscript renders is what the front page shows.
 #
 # Tables are emitted as GitHub-flavoured pipe tables. GitHub renders the README,
 # not Pandoc, and it prints Pandoc grid tables verbatim as a wall of plus signs.
+# Figures are referenced as committed PNGs under 03.outputs/figures rather than
+# embedded, so the README stays small.
 #
 # Usage: Rscript 05.scripts/04-build-readme.R
 
-suppressMessages(library(sf))
+suppressMessages({
+  library(xml2)
+  library(rvest)
+})
 
 root <- normalizePath(".")
-stopifnot(dir.exists(file.path(root, "02.inputs")))
-derived <- file.path(root, "02.inputs", "derived")
+html_path <- file.path(root, "01.manuscript", "manuscript.html")
+stopifnot(file.exists(html_path))
+doc <- read_html(html_path)
 
-iab <- sf::st_read(file.path(derived, "adelgid-iab-polygons.geojson"),
-                   quiet = TRUE)
-vi <- sf::st_read(file.path(derived, "vi-fir-agents.geojson"), quiet = TRUE)
+# Quarto separates the float label from its number with a non-breaking space,
+# U+00A0, which [[:space:]] does not match. Normalise it first or every
+# caption fails a "Figure 1" test and the headings fall back to raw ids.
+squash <- function(x) {
+  x <- gsub("\u00a0", " ", x, useBytes = FALSE)
+  trimws(gsub("[[:space:]]+", " ", x))
+}
 
-host_label <- c(B = "True fir, unspecified", BA = "Pacific silver fir",
-                BG = "Grand fir", BL = "Subalpine fir")
-agent_label <- c(IAB = "Balsam woolly adelgid",
-                 IBB = "Western balsam bark beetle")
-sev_label <- c(T = "Trace", L = "Light", M = "Moderate", S = "Severe",
-               V = "Very severe")
-
-# Emit a data frame as a GFM pipe table.
+# Emit a data frame as a GFM pipe table, escaping any pipe in a cell.
 gfm <- function(df) {
-  hdr <- paste0("| ", paste(names(df), collapse = " | "), " |")
+  cell <- function(v) gsub("|", "\\|", squash(as.character(v)), fixed = TRUE)
+  hdr <- paste0("| ", paste(vapply(names(df), cell, ""), collapse = " | "), " |")
   sep <- paste0("|", paste(rep("---", ncol(df)), collapse = "|"), "|")
-  rows <- apply(df, 1, function(r)
-    paste0("| ", paste(trimws(as.character(r)), collapse = " | "), " |"))
+  rows <- vapply(seq_len(nrow(df)), function(i)
+    paste0("| ", paste(vapply(df[i, ], cell, ""), collapse = " | "), " |"), "")
   paste(c(hdr, sep, rows), collapse = "\n")
 }
 
-# Table 2: polygons by agent and host.
-lab <- as.data.frame(table(Agent = agent_label[vi$PEST_SPECIES_CODE],
-                           Host = host_label[vi$TREE_SPECIES_CODE]),
-                     stringsAsFactors = FALSE)
-names(lab)[3] <- "Polygons"
-lab <- lab[lab$Polygons > 0, ]
-area <- tapply(vi$AREA_HA,
-               list(agent_label[vi$PEST_SPECIES_CODE],
-                    host_label[vi$TREE_SPECIES_CODE]),
-               function(v) round(sum(v)))
-lab$`Area (ha)` <- format(mapply(function(a, h) area[a, h], lab$Agent, lab$Host),
-                          big.mark = ",")
-lab <- lab[order(lab$Agent, -lab$Polygons), ]
+title <- squash(html_text(html_element(doc, "h1.title")))
+abstract <- squash(html_text(html_element(doc, "section.abstract, div.abstract")))
+abstract <- sub("^Abstract\\s*", "", abstract)
 
-# Table 3: severity by agent.
-sev <- as.data.frame.matrix(table(
-  Agent = agent_label[vi$PEST_SPECIES_CODE],
-  Severity = factor(sev_label[vi$PEST_SEVERITY_CODE],
-                    levels = unname(sev_label))))
-sev <- sev[, colSums(sev) > 0, drop = FALSE]
-sev <- cbind(Agent = rownames(sev), sev)
+# Every float, in document order, so the README follows the paper rather than a
+# list maintained by hand that will fall behind it.
+floats <- html_elements(doc, "div[id^='tbl-'], div[id^='fig-']")
 
-aset <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
-aset_tbl <- as.data.frame.matrix(table(
-  Agent = agent_label[aset$PEST_SPECIES_CODE],
-  Severity = factor(sev_label[aset$PEST_SEVERITY_CODE],
-                    levels = unname(sev_label))))
-aset_tbl <- aset_tbl[, colSums(aset_tbl) > 0, drop = FALSE]
-aset_tbl <- cbind(Agent = rownames(aset_tbl), aset_tbl,
-                  Total = rowSums(aset_tbl),
-                  `Area (ha)` = round(tapply(aset$AREA_HA,
-                      agent_label[aset$PEST_SPECIES_CODE], sum)))
+blocks <- lapply(floats, function(el) {
+  id <- xml_attr(el, "id")
+  cap <- html_element(el, "figcaption, caption")
+  # length() on an xml_node counts child nodes, so a caption holding only text
+  # returns zero and a length test silently discards it. Test the class.
+  has_cap <- !inherits(cap, "xml_missing")
+  cap_txt <- if (has_cap) squash(html_text(cap)) else id
+  # Quarto numbers the float inside the caption; keep it as the heading.
+  head_txt <- sub("^(Table [0-9]+|Figure [0-9]+)[:.]?\\s*", "", cap_txt)
+  num <- regmatches(cap_txt, regexpr("^(Table|Figure) [0-9]+", cap_txt))
+  heading <- if (length(num)) num else id
 
-lidar <- read.csv(file.path(derived, "lidar-coverage.csv"), check.names = FALSE)
-names(lidar) <- c("Extent", "Tiles", "Full index", "Acquisition years",
-                  "Density (pts/m2)", "Point classes")
-lidar$Tiles <- format(lidar$Tiles, big.mark = ",")
+  if (startsWith(id, "fig-")) {
+    img <- html_element(el, "img")
+    # The rendered document embeds the figure; the README points at the
+    # committed file of the same name instead.
+    body <- sprintf("![%s](03.outputs/figures/%s-1.png)", head_txt, id)
+  } else {
+    tb <- html_element(el, "table")
+    if (inherits(tb, "xml_missing")) return(NULL)
+    df <- html_table(tb, header = TRUE)
+    df <- as.data.frame(df, check.names = FALSE)
+    names(df) <- ifelse(names(df) == "" | is.na(names(df)),
+                        paste0("V", seq_along(df)), names(df))
+    body <- gfm(df)
+  }
+  paste0("## ", heading, "\n\n", head_txt, "\n\n", body, "\n")
+})
+blocks <- Filter(Negate(is.null), blocks)
 
-n_ba_iab <- sum(vi$TREE_SPECIES_CODE == "BA" & vi$PEST_SPECIES_CODE == "IAB")
-n_ba_ibb <- sum(vi$TREE_SPECIES_CODE == "BA" & vi$PEST_SPECIES_CODE == "IBB")
+out <- c(paste0("# ", title), "", "## Abstract", "", abstract, "",
+         unlist(lapply(blocks, function(b) c(b, ""))))
+writeLines(out, file.path(root, "README.md"))
 
-inputs_tbl <- data.frame(
-  Dataset = c("Pest Infestation Polygons", "Sentinel-2 L2A", "Sentinel-1 GRD",
-              "LidarBC open lidar"),
-  Role = c("Damage agent labels", "Optical predictors", "Radar predictors",
-           "Canopy structure predictors"),
-  Source = c("BC Data Catalogue", "Google Earth Engine",
-             "Google Earth Engine", "LidarBC open data portal"),
-  Licence = c("Open Government Licence - British Columbia",
-              "Copernicus open access", "Copernicus open access",
-              "Open Government Licence - British Columbia"),
-  check.names = FALSE)
-
-pending3 <- function(col1, name1) {
-  df <- data.frame(a = col1, b = "pending", c = "pending", d = "pending",
-                   check.names = FALSE)
-  names(df) <- c(name1, "Balanced accuracy", "Difference from spectral",
-                 "95% CI")
-  df
-}
-
-md <- c(
-"# Separating balsam woolly adelgid from bark beetle damage in Pacific silver fir",
-"",
-"**A multi-sensor attribution test on Vancouver Island, British Columbia**",
-"",
-"Seamus Murphy, ORCID [0000-0002-1792-0351](https://orcid.org/0000-0002-1792-0351)",
-"",
-"## Abstract",
-"",
-paste("Balsam woolly adelgid (*Adelges piceae*) and western balsam bark beetle",
-      "(*Dryocoetes confusus*) are both mapped on Pacific silver fir (*Abies",
-      "amabilis*) in the British Columbia aerial overview survey, so a canopy-damage",
-      "detector that cannot separate them measures neither. In this study, we examine",
-      "whether the addition of lidar and radar predictors to a spectral baseline",
-      "improves separation of the two agents, and by how much."),
-"",
-paste("> Results, discussion and conclusions are pre-registered shells marked",
-      "`pending`. No predictor value has been joined to any label, so no result",
-      "exists yet. Everything below is computed from the committed data extracts by",
-      "`05.scripts/04-build-readme.R`."),
-"",
-"## Figure 1",
-"",
-paste("Study area on Vancouver Island and the adjacent mainland coast of British",
-      "Columbia, Canada, showing aerial overview survey polygons attributed to balsam",
-      "woolly adelgid and to western balsam bark beetle on true fir hosts. Relief is",
-      "shaded from a 1 km digital elevation model illuminated from the northwest.",
-      "Projection NAD83 / BC Albers (EPSG 3005)."),
-"",
-"![Study area](03.outputs/figures/fig-studyarea-1.png)",
-"",
-"## Table 1",
-"",
-"Datasets used in the analysis, with their role and access terms.",
-"",
-gfm(inputs_tbl),
-"",
-"## Table 2",
-"",
-paste("Aerial overview survey polygons in the study area by damage agent and host",
-      "tree species. Area is the survey-recorded polygon area."),
-"",
-gfm(lab),
-"",
-paste0("Both agents are recorded on Pacific silver fir, ", n_ba_iab,
-       " adelgid against ", n_ba_ibb, " bark beetle polygons. That shared host is",
-       " what makes the separation an attribution problem rather than a detection",
-       " problem."),
-"",
-"## Table 3",
-"",
-"Severity class of survey polygons by damage agent.",
-"",
-gfm(sev),
-"",
-"## Figure 2",
-"",
-paste("Survey polygons mapped per year on true fir hosts in the study area, by",
-      "damage agent."),
-"",
-"![Polygons per year](03.outputs/figures/fig-timeseries-1.png)",
-"",
-"## Table 4",
-"",
-"Satellite scenes available over the study area for the analysis period.",
-"",
-gfm(data.frame(
-  Sensor = c("Sentinel-2 MSI", "Sentinel-1 SAR"),
-  Product = c("COPERNICUS/S2_SR_HARMONIZED", "COPERNICUS/S1_GRD"),
-  Period = "2019-06-01 to 2021-09-30",
-  Scenes = c("2,877", "1,575"), check.names = FALSE)),
-"",
-"## Table 5",
-"",
-paste("Lidar point cloud coverage over the study area and over the Comox field",
-      "window. Acquisition years and point classes are summarised from a sample of",
-      "up to 1000 tiles."),
-"",
-gfm(lidar),
-"",
-"## Figure 3",
-"",
-paste("Candidate field sites. Points are survey polygons attributed to balsam",
-      "woolly adelgid, sized by area and coloured by severity; open circles lack",
-      "lidar coverage and filled circles have it. Shaded envelopes show LidarBC",
-      "coverage. Rings mark 50, 100 and 150 km from Comox, for travel planning",
-      "only."),
-"",
-"![Candidate field sites](03.outputs/figures/fig-fieldsites-1.png)",
-"",
-"## Figure 4",
-"",
-paste("Lidar tiles and survey polygons over northern Vancouver Island. Grey",
-      "squares are individual point cloud tiles shaded by acquisition year.",
-      "Polygon outlines are survey records, red for adelgid and blue for bark",
-      "beetle, with adelgid polygons rated moderate or worse drawn heavier."),
-"",
-"![Lidar tiles and polygons](03.outputs/figures/fig-tiles-1.png)",
-"",
-"## Table 6",
-"",
-paste("Verification of the balanced accuracy implementation against cases with",
-      "analytically known values."),
-"",
-gfm(data.frame(
-  Case = c("Perfect prediction", "Fully inverted prediction",
-           "All assigned to majority class",
-           "Imbalanced, all majority (overall accuracy 0.75)"),
-  Expected = c(1, 0, 0.5, 0.5),
-  Observed = c(1, 0, 0.5, 0.5),
-  Agrees = "TRUE", check.names = FALSE)),
-"",
-"## Analysis set",
-"",
-paste("The sample, frozen by `05.scripts/14-build-analysis-set.R`: polygons on",
-      "Pacific silver fir under LidarBC coverage acquired within five years of",
-      "the survey. Severity is trace and light only, because no adelgid polygon",
-      "rated moderate or worse falls under lidar anywhere in British Columbia at",
-      "any useful temporal offset."),
-"",
-gfm(aset_tbl),
-"",
-"## Table 7",
-"",
-paste("Separation of the two damage agents by predictor set, under spatially",
-      "blocked cross-validation."),
-"",
-gfm(pending3(c("Spectral", "Spectral and structure",
-               "Spectral, structure and radar"), "Predictor set")),
-"",
-"## Table 8",
-"",
-"Per-class performance of each model, with support.",
-"",
-gfm(data.frame(
-  `Predictor set` = c("Spectral", "Spectral and structure",
-                      "Spectral, structure and radar"),
-  Sensitivity = "pending", Specificity = "pending", Support = "pending",
-  check.names = FALSE)),
-""
-)
-
-writeLines(md, file.path(root, "README.md"))
-message("wrote README.md, ", length(md), " lines")
+cat("wrote README.md\n")
+cat("  title:    ", substr(title, 1, 70), "\n")
+cat("  abstract: ", nchar(abstract), "characters\n")
+cat("  floats:   ", length(blocks), "\n")

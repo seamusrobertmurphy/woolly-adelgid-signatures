@@ -1,20 +1,15 @@
-# Separating balsam woolly adelgid from bark beetle damage in Pacific silver fir
-
-**A multi-sensor attribution test on Vancouver Island, British Columbia**
-
-Seamus Murphy, ORCID [0000-0002-1792-0351](https://orcid.org/0000-0002-1792-0351)
+# Separating balsam woolly adelgid from bark beetle damage in Pacific silver fir on Vancouver Island: a multi-sensor attribution test
 
 ## Abstract
 
-Balsam woolly adelgid (*Adelges piceae*) and western balsam bark beetle (*Dryocoetes confusus*) are both mapped on Pacific silver fir (*Abies amabilis*) in the British Columbia aerial overview survey, so a canopy-damage detector that cannot separate them measures neither. In this study, we examine whether the addition of lidar and radar predictors to a spectral baseline improves separation of the two agents, and by how much.
-
-> Results, discussion and conclusions are pre-registered shells marked `pending`. No predictor value has been joined to any label, so no result exists yet. Everything below is computed from the committed data extracts by `05.scripts/04-build-readme.R`.
+Balsam woolly adelgid (Adelges piceae) and western balsam bark beetle (Dryocoetes confusus) are both mapped on Pacific silver fir (Abies amabilis) in the British Columbia aerial overview survey, so a canopy-damage detector that cannot separate them measures neither. In this study, we examine whether the addition of lidar and radar predictors to a spectral baseline improves separation of the two agents, and by how much.
 
 ## Figure 1
 
-Study area on Vancouver Island and the adjacent mainland coast of British Columbia, Canada, showing aerial overview survey polygons attributed to balsam woolly adelgid and to western balsam bark beetle on true fir hosts. Relief is shaded from a 1 km digital elevation model illuminated from the northwest. Projection NAD83 / BC Albers (EPSG 3005).
+Study area on Vancouver Island and the adjacent mainland coast of British Columbia, Canada, showing aerial overview survey polygons attributed to balsam woolly adelgid and to western balsam bark beetle on true fir hosts. Relief is shaded from a 1 km digital elevation model illuminated from the northwest. Projection NAD83 / BC Albers (EPSG 3005); axis labels in degrees.
 
-![Study area](03.outputs/figures/fig-studyarea-1.png)
+![Study area on Vancouver Island and the adjacent mainland coast of British Columbia, Canada, showing aerial overview survey polygons attributed to balsam woolly adelgid and to western balsam bark beetle on true fir hosts. Relief is shaded from a 1 km digital elevation model illuminated from the northwest. Projection NAD83 / BC Albers (EPSG 3005); axis labels in degrees.](03.outputs/figures/fig-studyarea-1.png)
+
 
 ## Table 1
 
@@ -27,6 +22,7 @@ Datasets used in the analysis, with their role and access terms.
 | Sentinel-1 GRD | Radar predictors | Google Earth Engine | Copernicus open access |
 | LidarBC open lidar | Canopy structure predictors | LidarBC open data portal | Open Government Licence - British Columbia |
 
+
 ## Table 2
 
 Aerial overview survey polygons in the study area by damage agent and host tree species. Area is the survey-recorded polygon area.
@@ -36,27 +32,28 @@ Aerial overview survey polygons in the study area by damage agent and host tree 
 | Balsam woolly adelgid | Pacific silver fir | 176 | 8,324 |
 | Balsam woolly adelgid | True fir, unspecified | 12 | 118 |
 | Balsam woolly adelgid | Grand fir | 2 | 6 |
-| Western balsam bark beetle | Subalpine fir | 1125 | 75,797 |
+| Western balsam bark beetle | Subalpine fir | 1,125 | 75,797 |
 | Western balsam bark beetle | Pacific silver fir | 592 | 25,685 |
 | Western balsam bark beetle | True fir, unspecified | 41 | 1,756 |
 | Western balsam bark beetle | Grand fir | 2 | 58 |
 
-Both agents are recorded on Pacific silver fir, 176 adelgid against 592 bark beetle polygons. That shared host is what makes the separation an attribution problem rather than a detection problem.
 
 ## Table 3
 
-Severity class of survey polygons by damage agent.
+Severity class of survey polygons by damage agent. Severity is the surveyor’s ordinal rating.
 
 | Agent | Trace | Light | Moderate | Severe |
 |---|---|---|---|---|
 | Balsam woolly adelgid | 133 | 46 | 4 | 7 |
-| Western balsam bark beetle | 1187 | 457 | 100 | 16 |
+| Western balsam bark beetle | 1,187 | 457 | 100 | 16 |
+
 
 ## Figure 2
 
 Survey polygons mapped per year on true fir hosts in the study area, by damage agent.
 
-![Polygons per year](03.outputs/figures/fig-timeseries-1.png)
+![Survey polygons mapped per year on true fir hosts in the study area, by damage agent.](03.outputs/figures/fig-timeseries-1.png)
+
 
 ## Table 4
 
@@ -67,6 +64,7 @@ Satellite scenes available over the study area for the analysis period.
 | Sentinel-2 MSI | COPERNICUS/S2_SR_HARMONIZED | 2019-06-01 to 2021-09-30 | 2,877 |
 | Sentinel-1 SAR | COPERNICUS/S1_GRD | 2019-06-01 to 2021-09-30 | 1,575 |
 
+
 ## Table 5
 
 Lidar point cloud coverage over the study area and over the Comox field window. Acquisition years and point classes are summarised from a sample of up to 1000 tiles.
@@ -76,17 +74,20 @@ Lidar point cloud coverage over the study area and over the Comox field window. 
 | study area | 18,840 | False | 2023;2024;2025 | 8 | [1,2,7,12] |
 | Comox field window | 999 | True | 2018;2019;2023;2024 | 8 | [1, 2, 7];[1, 7];[1,2,7,12];[7] |
 
+
 ## Figure 3
 
-Candidate field sites. Points are survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC coverage. Rings mark 50, 100 and 150 km from Comox, for travel planning only.
+Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Rings mark 50, 100 and 150 km from Comox and are shown for travel planning only, not as a selection criterion. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005).
 
-![Candidate field sites](03.outputs/figures/fig-fieldsites-1.png)
+![Candidate field sites. Points are aerial overview survey polygons attributed to balsam woolly adelgid, sized by area and coloured by severity class; open circles lack lidar coverage and filled circles have it. Shaded envelopes show LidarBC point cloud coverage. Rings mark 50, 100 and 150 km from Comox and are shown for travel planning only, not as a selection criterion. Two mainland records fall outside this frame. Projection NAD83 / BC Albers (EPSG 3005).](03.outputs/figures/fig-fieldsites-1.png)
+
 
 ## Figure 4
 
-Lidar tiles and survey polygons over northern Vancouver Island. Grey squares are individual point cloud tiles shaded by acquisition year. Polygon outlines are survey records, red for adelgid and blue for bark beetle, with adelgid polygons rated moderate or worse drawn heavier.
+Lidar tiles and survey polygons over northern Vancouver Island. Grey squares are individual LidarBC point cloud tiles, shaded by acquisition year. Polygon outlines are aerial overview survey records: red for balsam woolly adelgid, blue for western balsam bark beetle, with adelgid polygons rated moderate or worse drawn heavier. Projection NAD83 / BC Albers (EPSG 3005).
 
-![Lidar tiles and polygons](03.outputs/figures/fig-tiles-1.png)
+![Lidar tiles and survey polygons over northern Vancouver Island. Grey squares are individual LidarBC point cloud tiles, shaded by acquisition year. Polygon outlines are aerial overview survey records: red for balsam woolly adelgid, blue for western balsam bark beetle, with adelgid polygons rated moderate or worse drawn heavier. Projection NAD83 / BC Albers (EPSG 3005).](03.outputs/figures/fig-tiles-1.png)
+
 
 ## Table 6
 
@@ -94,21 +95,58 @@ Verification of the balanced accuracy implementation against cases with analytic
 
 | Case | Expected | Observed | Agrees |
 |---|---|---|---|
-| Perfect prediction | 1.0 | 1.0 | TRUE |
-| Fully inverted prediction | 0.0 | 0.0 | TRUE |
-| All assigned to majority class | 0.5 | 0.5 | TRUE |
-| Imbalanced, all majority (overall accuracy 0.75) | 0.5 | 0.5 | TRUE |
+| Perfect prediction | 1 | 1 | true |
+| Fully inverted prediction | 0 | 0 | true |
+| All assigned to majority class | 0.5 | 0.5 | true |
+| Imbalanced, all majority (overall accuracy 0.75) | 0.5 | 0.5 | true |
 
-## Analysis set
-
-The sample, frozen by `05.scripts/14-build-analysis-set.R`: polygons on Pacific silver fir under LidarBC coverage acquired within five years of the survey. Severity is trace and light only, because no adelgid polygon rated moderate or worse falls under lidar anywhere in British Columbia at any useful temporal offset.
-
-| Agent | Trace | Light | Total | Area (ha) |
-|---|---|---|---|---|
-| Balsam woolly adelgid | 44 | 4 | 48 | 2238 |
-| Western balsam bark beetle | 29 | 7 | 36 | 1386 |
 
 ## Table 7
+
+Polygons of the frozen sample that carry lidar returns, against those the tile index claimed but the point clouds do not cover.
+
+| Class | Frozen sample | With returns | No returns |
+|---|---|---|---|
+| Balsam woolly adelgid | 48 | 43 | 5 |
+| Western balsam bark beetle | 36 | 29 | 7 |
+| Total | 84 | 72 | 12 |
+
+
+## Table 8
+
+The three predictor families as built, with the imagery and point cloud volumes behind them.
+
+| Family | Source | Polygons | Variables | Observations |
+|---|---|---|---|---|
+| Spectral | Sentinel-2 L2A | 84 | 36 | 1,266 scenes |
+| Radar | Sentinel-1 GRD | 84 | 8 | 673 scenes |
+| Structural | LidarBC point clouds | 72 | 14 | 121 tiles |
+
+
+## Table 9
+
+Association between Sentinel-1 backscatter and terrain geometry, before and after radiometric terrain flattening.
+
+| Quantity | Uncorrected | Flattened |
+|---|---|---|
+| Correlation with range slope | 0.925 | -0.154 |
+| Correlation with slope | -0.001 | -0.505 |
+| Between-polygon standard deviation (dB) | 2.64 | 1.01 |
+
+
+## Table 10
+
+Delivered point density by acquisition year against the density advertised for every tile, and the density achieved after thinning.
+
+| Year | Tiles | Advertised | Delivered median | Delivered range | Achieved median |
+|---|---|---|---|---|---|
+| 2,019 | 93 | 8 | 31.1 | 0.5 to 140.1 | 7.8 |
+| 2,023 | 20 | 8 | 64.8 | 44.7 to 226.8 | 7.77 |
+| 2,024 | 3 | 8 | 56 | 48.7 to 57.0 | 7.96 |
+| 2,025 | 5 | 8 | 70.6 | 65.6 to 72.0 | 2.76 |
+
+
+## Table 11
 
 Separation of the two damage agents by predictor set, under spatially blocked cross-validation.
 
@@ -118,7 +156,8 @@ Separation of the two damage agents by predictor set, under spatially blocked cr
 | Spectral and structure | pending | pending | pending |
 | Spectral, structure and radar | pending | pending | pending |
 
-## Table 8
+
+## Table 12
 
 Per-class performance of each model, with support.
 
@@ -127,4 +166,19 @@ Per-class performance of each model, with support.
 | Spectral | pending | pending | pending |
 | Spectral and structure | pending | pending | pending |
 | Spectral, structure and radar | pending | pending | pending |
+
+
+## Table 13
+
+Pipeline test on synthetic data with known truth. The null regime must return balanced accuracy near one half and differences near zero; the planted regime must recover the structural signal.
+
+| regime | model | balanced_accuracy | diff_from_spectral |
+|---|---|---|---|
+| null | spectral | 0.456 | 0 |
+| null | structure | 0.4333 | -0.0226 |
+| null | all | 0.4786 | 0.0226 |
+| planted | spectral | 0.5119 | 0 |
+| planted | structure | 0.9571 | 0.4452 |
+| planted | all | 0.9286 | 0.4167 |
+
 
