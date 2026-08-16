@@ -94,8 +94,13 @@ lidar_url <- function(env, ...) {
 cov_path <- file.path(derived, "moderate-plus-lidar.csv")
 if (!file.exists(cov_path)) {
   message("querying lidar coverage for ", nrow(pol), " polygons")
-  bb <- lapply(seq_len(nrow(pol)), function(i)
-    as.numeric(sf::st_bbox(sf::st_geometry(pol)[i])))
+  # The envelope is declared to the service as EPSG:4326, so the geometry must
+  # be in 4326 before its bounding box is taken. The WFS delivers BC Albers, and
+  # passing Albers metres as degrees returns zero matches for every polygon
+  # without erroring, which is how this ran to completion and reported nothing.
+  pol4326 <- sf::st_transform(pol, 4326)
+  bb <- lapply(seq_len(nrow(pol4326)), function(i)
+    as.numeric(sf::st_bbox(sf::st_geometry(pol4326)[i])))
   res <- vector("list", nrow(pol))
   for (i in seq_along(bb)) {
     u <- lidar_url(bb[[i]], outFields = "year", returnGeometry = "false",

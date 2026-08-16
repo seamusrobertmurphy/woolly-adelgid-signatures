@@ -1,0 +1,41 @@
+"code","agent","polygons","severe_plus","with_lidar","pct","lidar_vi","area_ha"
+"IDW","Western Spruce Budworm",1345,643,870,65,7,937921
+"NBP","Post-burn Mortality",922,537,584,63,3,24359
+"IDF","Forest Tent Caterpillar",661,14,356,54,1,50148
+"NB","Fire",448,447,345,77,30,850912
+"IBB","Western Balsam Bark Beetle",292,8,222,76,7,19923
+"ID6","Aspen Leaf Miner",331,107,110,33,0,89902
+"IBM","Mountain Pine Beetle",111,18,96,86,0,3962
+"IDX","Large Aspen Tortrix",250,166,84,34,0,36816
+"NF","Flooding",107,103,76,71,10,1037
+"IDB","Two-year Budworm",175,28,54,31,0,223889
+"NW","Windthrow",71,67,50,70,4,998
+"DFH","Larch Needle Blight",40,10,39,98,0,1614
+"IDI","Pine Needle Sheath Miner",58,8,37,64,0,1323
+"IBD","Douglas-fir Beetle",33,10,29,88,0,449
+"ID","Defoliators",50,30,21,42,0,20098
+"IBS","Spruce Beetle",42,3,13,31,0,4411
+"NS","Slide",33,33,13,39,8,925
+"IDU","Satin Moth",39,18,12,31,0,4462
+"ID9","Birch Leaf Skeletonizer",11,0,11,100,0,771
+"NDM","Drought - Mortality",9,4,8,89,0,175
+"DFS","Dothistroma Needle Blight",10,0,7,70,0,436
+"NDW","Drought, Heat, Woodborer Mortality Complex",28,23,7,25,0,503
+"DFL","Pine Needle Cast",5,1,5,100,0,177
+"AD","Deer",4,2,4,100,0,70
+"DSC","Comandra Blister Rust",15,4,4,27,0,1026
+"IBE","Silver Fir Beetle",3,2,3,100,0,1182
+"DLV","Aspen-Poplar Twig Blight",4,1,2,50,0,19
+"NCA","Aspen Decline",2,2,2,100,0,3
+"ND","Drought",3,1,2,67,0,271
+"NCY","Yellow cedar (Yc) Decline",11,0,1,9,0,469
+"NWT","Windthrow - Treatment or Harvest-related",2,2,1,50,1,18
+"TM","Other Mechanical Damage (non-logging)",1,1,1,100,1,5
+"A","Animal Damage",10,10,0,0,0,23
+"AB","Bear",2,2,0,0,0,6
+"AH","Hare or Rabbit",2,1,0,0,0,63
+"DF","Foliage Diseases",8,8,0,0,0,884
+"DLS","Sclerophoma Shoot Dieback",1,0,0,0,0,231
+"IDN","Lyonetia Miner",14,7,0,0,0,330
+"IEA","Unidentified Aspen Defoliation",1,1,0,0,0,84
+"NDF","Drought - Foliage Loss/Damage",3,3,0,0,0,54
