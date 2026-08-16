@@ -229,24 +229,29 @@ frame_box <- sf::st_read(bm, "frame", quiet = TRUE)
 vi_p <- sf::st_transform(vi, BC_ALBERS)
 fr <- sf::st_bbox(frame_box)
 
-# Everything is cropped to the frame the graticule labels describe. The layers
-# were prepared wider than the view on purpose, so that a fixed aspect ratio
-# expanding the shorter axis does not open a band of sea where the mainland
-# belongs, but what is drawn must still stop at the rectangle the axes label.
-to_frame <- function(x) suppressWarnings(
-  sf::st_crop(sf::st_make_valid(x), frame_box))
-land <- to_frame(land); lakes <- to_frame(lakes)
-rivers <- to_frame(rivers); admin <- to_frame(admin)
-hs <- terra::crop(hs, terra::ext(fr[c("xmin", "xmax", "ymin", "ymax")]))
-
 op <- par(mar = c(3.0, 3.6, 0.5, 0.5), xaxs = "i", yaxs = "i")
 plot(NA, xlim = fr[c("xmin", "xmax")], ylim = fr[c("ymin", "ymax")],
      asp = 1, axes = FALSE, xlab = "", ylab = "")
 
+# Clip to the region actually drawn, not to the frame asked for. A fixed aspect
+# ratio expands the shorter axis, so the plot region is larger than the xlim and
+# ylim, and a layer cropped to those limits stops short of the neatline and
+# leaves a band of background between the coast and the frame. par("usr") is
+# only known once the device is open, which is why the clip happens here.
+usr <- par("usr")
+draw_box <- sf::st_sfc(sf::st_polygon(list(rbind(
+  c(usr[1], usr[3]), c(usr[2], usr[3]), c(usr[2], usr[4]),
+  c(usr[1], usr[4]), c(usr[1], usr[3])))), crs = BC_ALBERS)
+to_frame <- function(x) suppressWarnings(
+  sf::st_intersection(sf::st_make_valid(sf::st_transform(x, BC_ALBERS)),
+                      draw_box))
+land <- to_frame(land); lakes <- to_frame(lakes)
+rivers <- to_frame(rivers); admin <- to_frame(admin)
+hs <- terra::crop(hs, terra::ext(usr[1], usr[2], usr[3], usr[4]))
+
 # Sea, then relief-shaded land, then hydrography, then boundaries. The sea is
 # painted across the whole plot region rather than the land bounding box, since
 # the fixed aspect ratio leaves the region taller than the data.
-usr <- par("usr")
 rect(usr[1], usr[3], usr[2], usr[4], col = "#dce7ef", border = NA)
 terra::plot(hs, col = grey.colors(100, start = 0.30, end = 1),
             legend = FALSE, add = TRUE, maxcell = 2e6)
@@ -491,15 +496,23 @@ acc <- sf::st_read(file.path(derived, "field-access-places.gpkg"), quiet = TRUE)
 acc <- acc[acc$name != "Comox", ]
 
 fr <- sf::st_bbox(frame_box)
-# Cropped to the frame the graticule labels describe, as in the study area map.
-to_frame <- function(x) suppressWarnings(
-  sf::st_crop(sf::st_make_valid(x), frame_box))
-land <- to_frame(land); lidar_env <- to_frame(lidar_env)
-
 op <- par(mar = c(3.0, 3.6, 0.5, 0.5), xaxs = "i", yaxs = "i")
 plot(NA, xlim = fr[c("xmin", "xmax")], ylim = fr[c("ymin", "ymax")],
      asp = 1, axes = FALSE, xlab = "", ylab = "")
 usr <- par("usr")
+# Clip to the region actually drawn. The aspect ratio expands the shorter axis
+# past the requested limits, so cropping to the frame leaves a band of sea
+# between the coast and the neatline.
+draw_box <- sf::st_sfc(sf::st_polygon(list(rbind(
+  c(usr[1], usr[3]), c(usr[2], usr[3]), c(usr[2], usr[4]),
+  c(usr[1], usr[4]), c(usr[1], usr[3])))), crs = BC_ALBERS)
+to_frame <- function(x) suppressWarnings(
+  sf::st_intersection(sf::st_make_valid(sf::st_transform(x, BC_ALBERS)),
+                      draw_box))
+land <- to_frame(land); lakes <- to_frame(lakes); rivers <- to_frame(rivers)
+lidar_env <- to_frame(lidar_env)
+hs <- terra::crop(hs, terra::ext(usr[1], usr[2], usr[3], usr[4]))
+
 rect(usr[1], usr[3], usr[2], usr[4], col = "#dce7ef", border = NA)
 terra::plot(hs, col = grey.colors(100, start = 0.45, end = 1), legend = FALSE,
             add = TRUE, maxcell = 2e6)

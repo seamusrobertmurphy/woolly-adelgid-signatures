@@ -1,33 +1,33 @@
-"agent","polygons"
-"Western Balsam Bark Beetle",875
-"Mountain Pine Beetle",681
-"Western Spruce Budworm",289
-"Drought - Foliage Loss/Damage",276
-"Code IDL",180
-"Yellow cedar (Yc) Decline",158
-"Fire",157
-"White Pine Blister Rust",150
-"Windthrow",124
-"Balsam Woolly Adelgid",104
-"Douglas-fir Beetle",92
-"Flooding",80
-"Slide",78
-"Post-burn Mortality",50
-"Spruce Beetle",50
-"Drought - Mortality",42
-"Code IDS",39
-"Defoliators",24
-"Bear",23
-"Laminated Root Rot",21
-"Drought",12
-"Code DRA",10
-"Foliage Diseases",8
-"Code D",7
-"Aspen-Poplar Twig Blight",3
-"Windthrow - Treatment or Harvest-related",3
-"Code DFW",1
-"Code DR",1
-"Code IDT",1
-"Code NY",1
-"Forest Tent Caterpillar",1
-"Other Mechanical Damage (non-logging)",1
+"code","agent","class","polygons","mod_plus","area_ha"
+"IBB","Western balsam bark beetle","Bark beetle",875,44,41839
+"IBM","Mountain pine beetle","Bark beetle",681,42,84465
+"IDW","Western spruce budworm","Defoliator",289,65,53725
+"NDF","Drought, foliage loss","Abiotic",276,50,20589
+"IDL","Western hemlock looper","Defoliator",180,76,15112
+"NCY","Yellow cedar decline","Abiotic",158,13,3950
+"NB","Fire","Abiotic",157,156,17218
+"DSB","White pine blister rust","Disease",150,4,17560
+"NW","Windthrow","Abiotic",124,122,1739
+"IAB","Balsam woolly adelgid","Sap feeder",104,9,6253
+"IBD","Douglas-fir beetle","Bark beetle",92,26,13390
+"NF","Flooding","Abiotic",80,70,926
+"NS","Slide","Abiotic",78,77,1851
+"IBS","Spruce beetle","Bark beetle",50,21,1423
+"NBP","Post-burn mortality","Abiotic",50,47,874
+"NDM","Drought, mortality","Abiotic",42,4,670
+"IDS","Conifer sawfly","Defoliator",39,21,8511
+"ID","Defoliators, group","Defoliator",24,24,4280
+"AB","Bear","Animal",23,0,212
+"DRL","Laminated root rot","Disease",21,0,744
+"ND","Drought","Abiotic",12,6,289
+"DRA","Armillaria root disease","Disease",10,1,198
+"DF","Foliage diseases, group","Disease",8,8,884
+"D","Disease, group not specified","Disease",7,7,155
+"DLV","Aspen-poplar twig blight","Disease",3,1,28
+"NWT","Windthrow, harvest related","Abiotic",3,3,21
+"DFW","Foliage disease, code absent from standards","Disease",1,1,41
+"DR","Root diseases, group","Disease",1,0,20
+"IDF","Forest tent caterpillar","Defoliator",1,1,5
+"IDT","Douglas-fir tussock moth","Defoliator",1,1,91
+"NY","Abiotic, code absent from standards","Abiotic",1,0,6
+"TM","Other mechanical damage","Abiotic",1,1,5
