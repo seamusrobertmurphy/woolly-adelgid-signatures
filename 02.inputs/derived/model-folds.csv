@@ -1,0 +1,16 @@
+"model","fold","balanced_accuracy"
+"spectral",1,NA
+"spectral",2,0.5444
+"spectral",3,0.6061
+"spectral",4,0.775
+"spectral",5,0.6042
+"structure",1,NA
+"structure",2,0.5444
+"structure",3,0.5606
+"structure",4,0.55
+"structure",5,0.5417
+"all",1,NA
+"all",2,0.6
+"all",3,0.4697
+"all",4,0.825
+"all",5,0.6667

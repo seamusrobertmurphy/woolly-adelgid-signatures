@@ -2,7 +2,7 @@
 
 ## Abstract
 
-Balsam woolly adelgid (Adelges piceae) and western balsam bark beetle (Dryocoetes confusus) are both mapped on Pacific silver fir (Abies amabilis) in the British Columbia aerial overview survey, so a canopy-damage detector that cannot separate them measures neither. In this study, we examine whether the addition of lidar and radar predictors to a spectral baseline improves separation of the two agents, and by how much.
+Balsam woolly adelgid (Adelges piceae) and western balsam bark beetle (Dryocoetes confusus) are both mapped on Pacific silver fir (Abies amabilis) in the British Columbia aerial overview survey, so a canopy-damage detector that cannot separate them measures neither. In this study, we examine whether adding lidar and radar predictors to a spectral baseline improves separation of the two agents. On 69 survey polygons under spatially blocked cross-validation, with the sample, folds and decision rule fixed before any model was fitted, it does not. A spectral baseline reaches a balanced accuracy of 0.632; adding canopy structure lowers it to 0.549, a paired difference of -0.083 whose interval excludes zero; adding radar as well returns 0.640, indistinguishable from the baseline. The structural hypothesis is contradicted rather than merely unsupported, which is consistent with published evidence that press disturbances leave canopy structure largely unchanged. The result holds for trace and light damage, the only severities for which public lidar and the survey record coincide anywhere in British Columbia.
 
 ## Figure 1
 
@@ -157,32 +157,32 @@ Delivered point density by acquisition year against the density advertised for e
 
 | Year | Tiles | Advertised | Delivered median | Delivered range | Achieved median |
 |---|---|---|---|---|---|
-| 2,019 | 93 | 8 | 31.1 | 0.5 to 140.1 | 7.8 |
-| 2,023 | 20 | 8 | 64.8 | 44.7 to 226.8 | 7.77 |
-| 2,024 | 3 | 8 | 56 | 48.7 to 57.0 | 7.96 |
-| 2,025 | 5 | 8 | 70.6 | 65.6 to 72.0 | 2.76 |
+| 2,019 | 93 | 8 | 31.1 | 0.5 to 140.1 | 15.2 |
+| 2,023 | 20 | 8 | 64.8 | 44.7 to 226.8 | 15.04 |
+| 2,024 | 3 | 8 | 56 | 48.7 to 57.0 | 15.61 |
+| 2,025 | 5 | 8 | 70.6 | 65.6 to 72.0 | 5.38 |
 
 
 ## Table 12
 
-Separation of the two damage agents by predictor set, under spatially blocked cross-validation.
+Per-class performance from pooled out-of-fold predictions, every polygon predicted once by a model that never saw it.
 
-| Predictor set | Balanced accuracy | Difference from spectral | 95% CI |
-|---|---|---|---|
-| Spectral | pending | pending | pending |
-| Spectral and structure | pending | pending | pending |
-| Spectral, structure and radar | pending | pending | pending |
+| Predictor set | Sensitivity | Specificity | Balanced accuracy | Adelgid correct | Bark beetle correct |
+|---|---|---|---|---|---|
+| Spectral | 0.707 | 0.464 | 0.586 | 29 of 41 | 13 of 28 |
+| Spectral and structure | 0.683 | 0.357 | 0.52 | 28 of 41 | 10 of 28 |
+| Spectral, structure and radar | 0.854 | 0.393 | 0.623 | 35 of 41 | 11 of 28 |
 
 
 ## Table 13
 
-Per-class performance of each model, with support.
+Separation of the two damage agents by predictor set, under spatially blocked cross-validation. The interval is the bias-corrected percentile bootstrap over folds on the paired difference from the spectral baseline.
 
-| Predictor set | Sensitivity | Specificity | Support |
-|---|---|---|---|
-| Spectral | pending | pending | pending |
-| Spectral and structure | pending | pending | pending |
-| Spectral, structure and radar | pending | pending | pending |
+| Predictor set | Balanced accuracy | Difference | 95% interval | Verdict |
+|---|---|---|---|---|
+| Spectral | 0.632 | baseline |  | baseline |
+| Spectral and structure | 0.549 | -0.083 | -0.184 to -0.023 | disconfirmed |
+| Spectral, structure and radar | 0.64 | +0.008 | -0.090 to +0.059 | inconclusive |
 
 
 ## Table 14
@@ -191,11 +191,11 @@ Pipeline test on synthetic data with known truth. The null regime must return ba
 
 | regime | model | balanced_accuracy | diff_from_spectral |
 |---|---|---|---|
-| null | spectral | 0.456 | 0 |
-| null | structure | 0.4333 | -0.0226 |
-| null | all | 0.4786 | 0.0226 |
-| planted | spectral | 0.5119 | 0 |
-| planted | structure | 0.9571 | 0.4452 |
-| planted | all | 0.9286 | 0.4167 |
+| null | spectral | 0.4935 | 0 |
+| null | structure | 0.4667 | -0.0268 |
+| null | all | 0.481 | -0.0125 |
+| planted | spectral | 0.4482 | 0 |
+| planted | structure | 0.9542 | 0.506 |
+| planted | all | 0.9583 | 0.5101 |
 
 

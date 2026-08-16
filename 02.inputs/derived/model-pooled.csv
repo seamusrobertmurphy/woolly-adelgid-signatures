@@ -1,0 +1,4 @@
+"model","n_predicted","sensitivity","specificity","balanced_accuracy","tp","fn","tn","fp"
+"spectral",69,0.7073,0.4643,0.5858,29,12,13,15
+"structure",69,0.6829,0.3571,0.52,28,13,10,18
+"all",69,0.8537,0.3929,0.6233,35,6,11,17

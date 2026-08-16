@@ -9,8 +9,16 @@ abstract: >
   (*Dryocoetes confusus*) are both mapped on Pacific silver fir (*Abies
   amabilis*) in the British Columbia aerial overview survey, so a canopy-damage
   detector that cannot separate them measures neither. In this study, we examine
-  whether the addition of lidar and radar predictors to a spectral baseline improves
-  separation of the two agents, and by how much.
+  whether adding lidar and radar predictors to a spectral baseline improves separation of
+  the two agents. On 69 survey polygons under spatially blocked cross-validation, with the
+  sample, folds and decision rule fixed before any model was fitted, it does not. A
+  spectral baseline reaches a balanced accuracy of 0.632; adding canopy structure lowers
+  it to 0.549, a paired difference of -0.083 whose interval excludes zero; adding radar as
+  well returns 0.640, indistinguishable from the baseline. The structural hypothesis is
+  contradicted rather than merely unsupported, which is consistent with published evidence
+  that press disturbances leave canopy structure largely unchanged. The result holds for
+  trace and light damage, the only severities for which public lidar and the survey record
+  coincide anywhere in British Columbia.
 keywords:
   - balsam woolly adelgid
   - Adelges piceae
@@ -968,43 +976,222 @@ fmt_tbl(dens_tab)
 
 ## Model comparison
 
-[PENDING. Balanced accuracy of the three nested models and the difference between the multi-sensor and spectral-only models, with its interval.]
+This is the only block in the document that joins a predictor value to a label. Everything that governs it was fixed before it ran: the hypotheses, the three nested predictor sets, the hyperparameters, the fold assignment, the interval method and the decision rule are in the pre-registration frozen at commit `5d69fc2` and amended at `8f8ca60`, and the fold structure was written by `pipe-blocks` from geometry alone.
 
 ```{r}
-#| label: tbl-primary
-#| tbl-cap: "Separation of the two damage agents by predictor set, under spatially blocked cross-validation."
-primary <- data.frame(
-  `Predictor set` = c("Spectral", "Spectral and structure",
-                      "Spectral, structure and radar"),
-  `Balanced accuracy` = "pending",
-  `Difference from spectral` = "pending",
-  `95% CI` = "pending",
-  check.names = FALSE
-)
-fmt_tbl(primary)
+#| label: pipe-fit
+#| echo: true
+#| output: false
+fit_path <- file.path(derived, "model-results.csv")
+folds_path <- file.path(derived, "model-folds.csv")
+BOOT_DRAWS <- 10000L
+
+if (!file.exists(fit_path)) local({
+  library(ranger)
+  b <- read.csv(blocks_path, stringsAsFactors = FALSE)
+  opt <- read.csv(opt_path, stringsAsFactors = FALSE)
+  rad <- read.csv(rad_path, stringsAsFactors = FALSE)
+  st <- read.csv(struct_path, stringsAsFactors = FALSE)
+  flat <- read.csv(file.path(derived, "radar-flattening-check.csv"),
+                   stringsAsFactors = FALSE)
+
+  a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+  lab <- data.frame(poly_id = sprintf("P%03d", seq_len(nrow(a))),
+                    y = a$PEST_SPECIES_CODE,
+                    survey_year = a$CAPTURE_YEAR, stringsAsFactors = FALSE)
+  rm(a)
+
+  # Terrain covariate from the flattening check, which already carries mean
+  # polygon slope from the same digital elevation model the radar used.
+  slope <- flat[, c("poly_id", "slope_deg")]
+
+  # The predictor sets, exactly as the pre-registration lists them.
+  spec_v <- grep("_(mean|stdDev)$", names(opt), value = TRUE)
+  rad_v <- grep("_(mean|stdDev)$", names(rad), value = TRUE)
+  struct_v <- c("zq25", "zq50", "zq75", "zq95", "zq25_zq95", "crr",
+                "above_two_thirds", "rumple", "chm_sd", "cv_first",
+                "cover", "gap_frac", "vci", "rh10", "p_mid", "p_under")
+  cov_v <- c("survey_year", "slope_deg", "dens_used")
+
+  d <- merge(b[, c("poly_id", "fold")], lab, by = "poly_id")
+  d <- merge(d, slope, by = "poly_id")
+  d <- merge(d, opt[, c("poly_id", spec_v)], by = "poly_id")
+  d <- merge(d, rad[, c("poly_id", rad_v)], by = "poly_id")
+  d <- merge(d, st[, c("poly_id", struct_v, "dens_used")], by = "poly_id")
+  stopifnot(nrow(d) == nrow(b), !anyNA(d))
+
+  sets <- list(spectral = c(spec_v, cov_v),
+               structure = c(spec_v, struct_v, cov_v),
+               all = c(spec_v, struct_v, rad_v, cov_v))
+
+  ba <- run_folds(d, sets, d$fold)
+
+  # Per-fold values are kept, because the interval is taken over folds and a
+  # reader should be able to see the spread the interval is built from.
+  fold_tab <- do.call(rbind, lapply(names(ba), function(nm)
+    data.frame(model = nm, fold = sort(unique(d$fold)),
+               balanced_accuracy = round(ba[[nm]], 4),
+               stringsAsFactors = FALSE)))
+  write.csv(fold_tab, folds_path, row.names = FALSE)
+
+  # Bias-corrected percentile bootstrap over folds, the interval named in the
+  # pre-registration. With five folds it is wide by construction, which is the
+  # honest consequence of a spatially blocked design on this sample.
+  set.seed(SEED)
+  bc_ci <- function(v) {
+    v <- v[is.finite(v)]
+    if (length(v) < 2) return(c(NA_real_, NA_real_))
+    th <- mean(v)
+    bs <- replicate(BOOT_DRAWS, mean(sample(v, length(v), replace = TRUE)))
+    z0 <- stats::qnorm(mean(bs < th))
+    if (!is.finite(z0)) z0 <- 0
+    p <- stats::pnorm(2 * z0 + stats::qnorm(c(0.025, 0.975)))
+    unname(stats::quantile(bs, p, na.rm = TRUE))
+  }
+
+  rows <- lapply(names(sets), function(nm) {
+    dif <- ba[[nm]] - ba$spectral
+    ci <- if (nm == "spectral") c(NA_real_, NA_real_) else bc_ci(dif)
+    # Two sided p from the bootstrap, by the proportion of draws on the other
+    # side of zero, doubled and bounded.
+    # Folds where balanced accuracy is undefined are dropped here exactly as
+    # the interval drops them, so the two cannot disagree.
+    dfin <- dif[is.finite(dif)]
+    p <- if (nm == "spectral" || length(dfin) < 2) NA_real_ else {
+      bs <- replicate(BOOT_DRAWS, mean(sample(dfin, length(dfin), replace = TRUE)))
+      min(1, 2 * min(mean(bs <= 0), mean(bs >= 0)))
+    }
+    data.frame(model = nm,
+               balanced_accuracy = round(mean(ba[[nm]], na.rm = TRUE), 4),
+               ba_sd = round(stats::sd(ba[[nm]], na.rm = TRUE), 4),
+               diff_from_spectral = round(mean(dif, na.rm = TRUE), 4),
+               ci_low = round(ci[1], 4), ci_high = round(ci[2], 4),
+               p_raw = round(p, 4), stringsAsFactors = FALSE)
+  })
+  res <- do.call(rbind, rows)
+  res$folds_used <- sum(is.finite(ba$spectral))
+
+  # Secondary, and reported as such: every polygon predicted once from a model
+  # that never saw it, pooled into a single confusion matrix. This uses the
+  # units the single-class fold puts beyond the reach of the per-fold statistic.
+  pooled <- lapply(names(sets), function(nm) {
+    pr <- oof_predict(d, sets[[nm]], d$fold)
+    ok <- !is.na(pr)
+    tp <- sum(d$y[ok] == "IAB" & pr[ok] == "IAB")
+    fn <- sum(d$y[ok] == "IAB" & pr[ok] != "IAB")
+    tn <- sum(d$y[ok] != "IAB" & pr[ok] != "IAB")
+    fp <- sum(d$y[ok] != "IAB" & pr[ok] == "IAB")
+    data.frame(model = nm, n_predicted = sum(ok),
+               sensitivity = round(tp / (tp + fn), 4),
+               specificity = round(tn / (tn + fp), 4),
+               balanced_accuracy = round(((tp / (tp + fn)) + (tn / (tn + fp))) / 2, 4),
+               tp = tp, fn = fn, tn = tn, fp = fp, stringsAsFactors = FALSE)
+  })
+  write.csv(do.call(rbind, pooled),
+            file.path(derived, "model-pooled.csv"), row.names = FALSE)
+  # Holm across the two confirmatory tests, as pre-registered.
+  k <- res$model != "spectral"
+  res$p_holm <- NA_real_
+  res$p_holm[k] <- round(stats::p.adjust(res$p_raw[k], method = "holm"), 4)
+  res$verdict <- ifelse(res$model == "spectral", "baseline",
+    ifelse(is.na(res$ci_low), "not estimable",
+      ifelse(res$ci_low > 0, "confirmed",
+        ifelse(res$ci_high < 0, "disconfirmed", "inconclusive"))))
+  write.csv(res, fit_path, row.names = FALSE)
+})
 ```
 
-## Class performance
+```{r}
+#| label: model-inputs
+#| echo: true
+#| output: false
+# Paths are built here rather than borrowed from the pipeline section, which
+# appears later in the document than this one and has not run yet.
+mres <- read.csv(file.path(derived, "model-results.csv"), stringsAsFactors = FALSE)
+mpool <- read.csv(file.path(derived, "model-pooled.csv"), stringsAsFactors = FALSE)
+mblk <- read.csv(file.path(derived, "spatial-blocks.csv"), stringsAsFactors = FALSE)
+g <- function(tb, m, col) tb[[col]][tb$model == m]
+f3 <- function(x) sprintf("%.3f", x)
+sg <- function(x) sprintf("%+.3f", x)
+ci <- function(m) sprintf("%+.3f to %+.3f", g(mres, m, "ci_low"), g(mres, m, "ci_high"))
 
-[PENDING. Per-class sensitivity and specificity, the confusion matrix and its support, and the relative importance of predictors grouped by sensor family.]
+ba_spec <- f3(g(mres, "spectral", "balanced_accuracy"))
+ba_struct <- f3(g(mres, "structure", "balanced_accuracy"))
+ba_all <- f3(g(mres, "all", "balanced_accuracy"))
+d_struct <- sg(g(mres, "structure", "diff_from_spectral"))
+d_all <- sg(g(mres, "all", "diff_from_spectral"))
+ci_struct <- ci("structure"); ci_all <- ci("all")
+pool_spec <- f3(g(mpool, "spectral", "balanced_accuracy"))
+pool_struct <- f3(g(mpool, "structure", "balanced_accuracy"))
+pool_all <- f3(g(mpool, "all", "balanced_accuracy"))
+spec_min <- f3(min(mpool$specificity)); spec_max <- f3(max(mpool$specificity))
+sens_min <- f3(min(mpool$sensitivity)); sens_max <- f3(max(mpool$sensitivity))
+tp_all <- g(mpool, "all", "tp"); tn_all <- g(mpool, "all", "tn")
+n_model <- nrow(mblk)
+n_iab_model <- g(mpool, "all", "tp") + g(mpool, "all", "fn")
+n_ibb_model <- g(mpool, "all", "tn") + g(mpool, "all", "fp")
+imb_model <- sprintf("%.2f", max(n_iab_model, n_ibb_model) /
+                       min(n_iab_model, n_ibb_model))
+holm_struct <- sprintf("%.3f", g(mres, "structure", "p_holm"))
+```
+
+The comparison was run once, on the sample and folds fixed before it, and it is reported as it fell. Neither hypothesis is supported and one is contradicted (@tbl-primary).
+
+The spectral baseline separates the two agents at a balanced accuracy of `r ba_spec` averaged over folds. Adding the structural family **reduces** that to `r ba_struct`, a paired difference of `r d_struct` whose 95 percent interval, `r ci_struct`, excludes zero in the negative direction. Under the pre-registered decision rule H2 is therefore disconfirmed rather than inconclusive: structure did not fail to help, it hurt, and it does so consistently, in three of the four evaluable folds and never helping in the fourth. Adding radar as well returns the model to `r ba_all`, a difference from the baseline of `r d_all` with an interval of `r ci_all` that spans zero, so H1 is inconclusive.
+
+One fold could not be evaluated and the reason matters more than the arithmetic. Blocking is spatially determined and label-blind by design, so nothing prevented a fold from drawing only one agent, and one did: 13 adelgid polygons and no bark beetle. Balanced accuracy needs both classes to be defined, so that fold yields no value for any model and the primary statistic rests on the remaining four, covering 56 of the `r n_model` polygons. This is a deviation from the pre-registered analysis, which did not anticipate the case, and it is recorded as one. It also biases which polygons the primary statistic sees, since the excluded fold is entirely of the majority class.
+
+Because that exclusion is uncomfortable, a secondary estimate is reported that uses every polygon. Each unit is predicted once by a model that never saw it, and the predictions are pooled into one confusion matrix rather than averaged over folds (@tbl-secondary). It agrees with the primary analysis in direction and is lower throughout: `r pool_spec` for the spectral baseline, `r pool_struct` with structure added, `r pool_all` with radar as well.
+
+The per-class figures are where the modest headline numbers become legible. All three models identify adelgid reasonably and bark beetle poorly, with specificity between `r spec_min` and `r spec_max` against sensitivity between `r sens_min` and `r sens_max`. The multi-sensor model reaches its balanced accuracy by predicting adelgid more often, not by separating the classes better: it recovers `r tp_all` of the `r n_iab_model` adelgid polygons but only `r tn_all` of the `r n_ibb_model` bark beetle ones. On a sample imbalanced `r imb_model` to 1 in favour of adelgid, that is close to the behaviour the balanced accuracy metric was chosen to expose.
 
 ```{r}
 #| label: tbl-secondary
-#| tbl-cap: "Per-class performance of each model, with support."
-secondary <- data.frame(
-  `Predictor set` = c("Spectral", "Spectral and structure",
-                      "Spectral, structure and radar"),
-  Sensitivity = "pending",
-  Specificity = "pending",
-  Support = "pending",
-  check.names = FALSE
-)
-fmt_tbl(secondary)
+#| tbl-cap: "Per-class performance from pooled out-of-fold predictions, every polygon predicted once by a model that never saw it."
+local({
+  p <- read.csv(file.path(derived, "model-pooled.csv"), stringsAsFactors = FALSE)
+  nm <- c(spectral = "Spectral", structure = "Spectral and structure",
+          all = "Spectral, structure and radar")
+  fmt_tbl(data.frame(
+    `Predictor set` = unname(nm[p$model]),
+    Sensitivity = sprintf("%.3f", p$sensitivity),
+    Specificity = sprintf("%.3f", p$specificity),
+    `Balanced accuracy` = sprintf("%.3f", p$balanced_accuracy),
+    `Adelgid correct` = paste0(p$tp, " of ", p$tp + p$fn),
+    `Bark beetle correct` = paste0(p$tn, " of ", p$tn + p$fp),
+    check.names = FALSE))
+})
+```
+
+```{r}
+#| label: tbl-primary
+#| tbl-cap: "Separation of the two damage agents by predictor set, under spatially blocked cross-validation. The interval is the bias-corrected percentile bootstrap over folds on the paired difference from the spectral baseline."
+local({
+  r <- read.csv(file.path(derived, "model-results.csv"),
+                stringsAsFactors = FALSE)
+  nm <- c(spectral = "Spectral", structure = "Spectral and structure",
+          all = "Spectral, structure and radar")
+  fmt_tbl(data.frame(
+    `Predictor set` = unname(nm[r$model]),
+    `Balanced accuracy` = sprintf("%.3f", r$balanced_accuracy),
+    `Difference` = ifelse(r$model == "spectral", "baseline",
+                          sprintf("%+.3f", r$diff_from_spectral)),
+    `95% interval` = ifelse(is.na(r$ci_low), "",
+                            sprintf("%+.3f to %+.3f", r$ci_low, r$ci_high)),
+    `Verdict` = r$verdict,
+    check.names = FALSE))
+})
 ```
 
 # Discussion and conclusions
 
-This study asks whether structural and radar predictors separate balsam woolly adelgid from western balsam bark beetle damage in a single host, where colour alone has been shown to struggle. That question is not answered here. The predictors are built and the design is fixed, and the comparison itself waits behind the pre-registration gate, deliberately, because a sample this small offers many ways to reach a flattering answer and the guard against them is to fix the analysis before seeing it. What the construction did establish is worth reporting in its own right, because two of the findings bear on any study that proposes to use an open lidar archive with survey polygons, and both were invisible until the point clouds themselves were read.
+This study asks whether structural and radar predictors separate balsam woolly adelgid from western balsam bark beetle damage in a single host, where colour alone has been shown to struggle. The answer, on this sample and under the analysis fixed before it was run, is no. The spectral baseline reaches a balanced accuracy of `r ba_spec`, adding canopy structure lowers it to `r ba_struct`, and adding radar as well returns it to `r ba_all`, which is indistinguishable from the baseline. One hypothesis is inconclusive and the other is contradicted.
+
+The contradicted one is the more informative. Structure did not simply fail to help: it made the classifier worse by `r d_struct`, with an interval excluding zero and a Holm-corrected p of `r holm_struct`. Sixteen structural variables carrying no signal would have left the baseline roughly where it was, since a random forest can ignore uninformative inputs. Degrading it means they carried something that competes with the spectral evidence, and on 69 units with `mtry` fixed at the square root of the predictor count, adding sixteen noisy candidates dilutes the chance that an informative spectral variable is offered at any given split. The structural family behaved as a source of variance rather than of information.
+
+That is the outcome @Choi_2023 predicted and it was recorded in the pre-registration before the models ran: press disturbances, of which adelgid damage is one, produce structural impacts that "could not be clearly detected, likely because of compensatory growth". This study now supplies a quantitative instance of that claim in a second host genus, on a second continent's congener, at operational support and with the analysis registered in advance. It also supplies the boundary condition @Boucher_2020 did not have to test: the midstorey and permeability variables that carried 60 percent of the variation in hemlock mortality did not rescue the structural arm here.
+
+Three cautions are owed before that reading is accepted. The severity of the sample is trace and light throughout, which is where any signal is weakest, so this is a test of whether structure separates *early* damage and not of whether it separates damage. The labels are one surveyor's judgement from an aircraft and are not independently verified, so every model is chasing a target that carries its own error. And the sample is 69 polygons in five spatially blocked folds, one of which held a single class and could not be evaluated at all, so the intervals are wide by construction and the primary statistic rests on 56 of the 69.
 
 ## Archive reliability
 
@@ -1040,15 +1227,15 @@ This study evaluates attribution rather than detection, and the distinction is m
 
 ## Conclusions
 
-Three conclusions can be drawn now, and the one the study exists for cannot.
+Four conclusions follow, and the first is the answer to the question the study was built to ask.
 
-A multi-sensor predictor base for agent attribution at survey-polygon support can be assembled entirely from open data, and this one has been: `r opt_scenes_txt` optical scenes, `r rad_scenes_txt` radar scenes and `r tile_pts_txt` lidar returns reduced to three predictor families over `r n_struct` polygons, with every step recomputable from the code in this document.
+Canopy structure from airborne lidar does not help separate balsam woolly adelgid from western balsam bark beetle damage in Pacific silver fir at trace and light severity. It hurts, measurably and repeatably across folds, and adding radar recovers only the ground that structure lost. A spectral baseline at `r ba_spec` is what these data support, and even that rests on identifying the majority class well and the minority class poorly.
 
-Open lidar archives should be treated as a collection of surveys rather than as a survey. Coverage must be verified against the point clouds and not against the index, and density must be equalised and then floored, because the delivered product varies by more than two orders of magnitude within a single advertised specification and varies systematically with acquisition.
+Open lidar archives should be treated as a collection of surveys rather than as a survey. Coverage must be verified against the point clouds and not against the index, which here claimed ground the data did not occupy for twelve polygons, and density must be equalised and then floored, because the delivered product varies by more than two orders of magnitude inside a single advertised specification and varies systematically with acquisition.
 
 Radar over mountainous terrain requires radiometric flattening before it can be interpreted as anything other than topography, and flattening leaves a residual association with steepness that keeps terrain in the model as a covariate.
 
-Whether the agents separate, and whether structure and radar add anything to colour in separating them, remains open. The predictors are built and the design is fixed; the analysis is registered before it is run, and reported whichever way it falls.
+And a null obtained this way is worth more than a positive obtained otherwise. The sample, the folds, the predictor sets, the hyperparameters and the decision rule were fixed and committed before the first model ran, the estimator was shown on synthetic data to recover a planted signal and to return one half on noise, and the one deviation forced by the data is reported rather than absorbed. The result is negative, and it is the result.
 
 # Analysis pipeline
 
@@ -2755,6 +2942,33 @@ run_folds <- function(dat, sets, folds, seed = SEED) {
   })
   names(out) <- names(sets)
   out
+}
+
+# The same fitting, returning the held-out prediction for every unit instead of
+# a per-fold score. A spatially blocked fold can contain a single class, in
+# which case balanced accuracy is undefined for that fold and the unit-level
+# pooling below is the only estimate that uses every polygon exactly once.
+oof_predict <- function(dat, vars, folds, seed = SEED) {
+  pred <- rep(NA_character_, nrow(dat))
+  for (f in sort(unique(folds))) {
+    tr <- dat[folds != f, , drop = FALSE]
+    te_i <- which(folds == f)
+    if (length(unique(tr$y)) < 2 || !length(te_i)) next
+    n_max <- max(table(tr$y))
+    set.seed(seed + f)
+    idx <- unlist(lapply(unique(tr$y), function(l) {
+      w <- which(tr$y == l)
+      if (length(w) == n_max) w else sample(w, n_max, replace = TRUE)
+    }))
+    trb <- tr[idx, , drop = FALSE]
+    fit <- ranger::ranger(
+      x = trb[, vars, drop = FALSE], y = factor(trb$y),
+      num.trees = 1000L, mtry = max(1L, floor(sqrt(length(vars)))),
+      min.node.size = 5L, seed = seed + f, probability = FALSE)
+    pred[te_i] <- as.character(
+      predict(fit, data = dat[te_i, vars, drop = FALSE])$predictions)
+  }
+  pred
 }
 
 if (!file.exists(synth_path)) local({

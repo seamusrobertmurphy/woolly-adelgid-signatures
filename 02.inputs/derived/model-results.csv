@@ -1,0 +1,4 @@
+"model","balanced_accuracy","ba_sd","diff_from_spectral","ci_low","ci_high","p_raw","folds_used","p_holm","verdict"
+"spectral",0.6324,0.0993,0,NA,NA,NA,4,NA,"baseline"
+"structure",0.5492,0.0084,-0.0832,-0.1844,-0.0227,0.009,4,0.018,"disconfirmed"
+"all",0.6403,0.1478,0.0079,-0.0898,0.059,0.5286,4,0.5286,"inconclusive"
