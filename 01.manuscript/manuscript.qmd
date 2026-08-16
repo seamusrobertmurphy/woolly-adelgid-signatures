@@ -738,7 +738,177 @@ checks$Agrees <- abs(checks$Expected - checks$Observed) < 1e-9
 fmt_tbl(checks)
 ```
 
+```{r}
+#| label: results-inputs
+#| echo: true
+#| output: false
+# Everything the results below report, read from the tables the pipeline wrote.
+# No predictor value is joined to any label here: the only quantity crossed with
+# the agent is whether a polygon carries lidar returns, which is an inclusion
+# criterion of the same kind as host and landmass, not an outcome.
+suppressMessages(library(lidR))
+opt <- read.csv(file.path(derived, "predictors-optical.csv"))
+rad <- read.csv(file.path(derived, "predictors-radar.csv"))
+str_tab <- read.csv(file.path(derived, "predictors-structural.csv"))
+opt_log <- read.csv(file.path(derived, "predictors-optical-log.csv"))
+rad_log <- read.csv(file.path(derived, "predictors-radar-log.csv"))
+str_log <- read.csv(file.path(derived, "predictors-structural-log.csv"))
+dropped <- read.csv(file.path(derived, "structural-dropped.csv"))
+tiles_need <- read.csv(file.path(derived, "lidar-tiles-needed.csv"))
+flat <- read.csv(file.path(derived, "radar-flattening-check.csv"))
+
+lg <- function(tbl, p) tbl$value[tbl$parameter == p]
+
+# The positional identifier is the same one every predictor block derives, so
+# the frozen sample can be matched to the structural table row for row.
+aset_pid <- sprintf("P%03d", seq_len(nrow(aset)))
+has_struct <- aset_pid %in% str_tab$poly_id
+
+n_struct <- nrow(str_tab)
+n_dropped_struct <- nrow(dropped)
+n_struct_iab <- sum(aset$PEST_SPECIES_CODE[has_struct] == "IAB")
+n_struct_ibb <- sum(aset$PEST_SPECIES_CODE[has_struct] == "IBB")
+n_drop_iab <- sum(aset$PEST_SPECIES_CODE[!has_struct] == "IAB")
+n_drop_ibb <- sum(aset$PEST_SPECIES_CODE[!has_struct] == "IBB")
+struct_imbalance <- round(max(n_struct_iab, n_struct_ibb) /
+                          min(n_struct_iab, n_struct_ibb), 2)
+drop_year <- paste(sort(unique(aset$lidar_year[!has_struct])), collapse = " and ")
+
+opt_scenes <- as.integer(lg(opt_log, "scenes_matched"))
+opt_corrected <- as.integer(lg(opt_log, "scenes_corrected"))
+rad_scenes <- as.integer(lg(rad_log, "scenes_matched"))
+rad_asc <- as.integer(lg(rad_log, "scenes_ascending"))
+rad_desc <- as.integer(lg(rad_log, "scenes_descending"))
+opt_scenes_txt <- format(opt_scenes, big.mark = ",")
+opt_corr_txt <- format(opt_corrected, big.mark = ",")
+rad_scenes_txt <- format(rad_scenes, big.mark = ",")
+rad_ret_min <- sprintf("%.3f", min(rad$retained_frac))
+rad_ret_med <- sprintf("%.3f", median(rad$retained_frac))
+
+n_tiles_used <- nrow(tiles_need)
+tile_gb <- round(sum(as.numeric(tiles_need$bytes)) / 1e9, 1)
+# Counted from the tile headers rather than from the log, which records the
+# delivered volume in bytes.
+tile_pts <- sum(vapply(file.path(inputs, "lidar", tiles_need$year,
+                                 tiles_need$filename),
+                       function(f) as.numeric(
+                         lidR::readLASheader(f)@PHB[["Number of point records"]]),
+                       numeric(1)))
+tile_pts_txt <- paste(round(tile_pts / 1e9, 1), "billion")
+
+# Terrain flattening, measured rather than asserted.
+flat_r_sigma <- sprintf("%.3f", cor(flat$VV_sigma0, flat$alpha_r_deg))
+flat_r_gamma <- sprintf("%.3f", cor(flat$VV_flat, flat$alpha_r_deg))
+flat_r_sigma_slope <- sprintf("%.3f", cor(flat$VV_sigma0, flat$slope_deg))
+flat_r_gamma_slope <- sprintf("%.3f", cor(flat$VV_flat, flat$slope_deg))
+flat_sd_sigma <- sprintf("%.2f", sd(flat$VV_sigma0))
+flat_sd_gamma <- sprintf("%.2f", sd(flat$VV_flat))
+
+adv_dens <- paste(unique(tiles_need$density), collapse = ", ")
+dens_tile_min <- sprintf("%.1f", min(tiles_need$density_actual))
+dens_tile_max <- sprintf("%.1f", max(tiles_need$density_actual))
+dens_tile_med <- sprintf("%.1f", median(tiles_need$density_actual))
+
+target_dens <- as.numeric(lg(str_log, "target_density_pts_m2"))
+n_at_target <- sum(str_tab$dens_used >= target_dens * 0.94)
+n_below_target <- n_struct - n_at_target
+n_below_four <- sum(str_tab$dens_used < 4)
+n_below_two <- sum(str_tab$dens_used < 2)
+gap_dens_r <- sprintf("%.2f", cor(str_tab$dens_used, str_tab$gap_frac))
+
+yrs <- sort(unique(tiles_need$year))
+dens_tab <- data.frame(
+  Year = yrs,
+  Tiles = as.integer(tapply(tiles_need$density_actual, tiles_need$year,
+                            length)[as.character(yrs)]),
+  `Advertised` = as.integer(tapply(tiles_need$density, tiles_need$year,
+                                   median)[as.character(yrs)]),
+  `Delivered median` = round(as.numeric(tapply(tiles_need$density_actual,
+                                               tiles_need$year,
+                                               median)[as.character(yrs)]), 1),
+  `Delivered range` = vapply(yrs, function(y) {
+    v <- tiles_need$density_actual[tiles_need$year == y]
+    sprintf("%.1f to %.1f", min(v), max(v)) }, ""),
+  `Achieved median` = round(as.numeric(tapply(str_tab$dens_used,
+                                              str_tab$lidar_year,
+                                              median)[as.character(yrs)]), 2),
+  check.names = FALSE)
+```
+
 # Results
+
+The results below divide at the pre-registration gate. Everything in the first four sections concerns the construction of the sample and the predictors and is reported here because it is established, reproducible and, in two cases, consequential for anyone attempting this design elsewhere. The model comparison that the study exists to make lies beyond that gate: no predictor value has been joined to any label, and the tables that will carry it are pre-registered shells whose cells read pending until the analysis is registered and run.
+
+## Sample realised
+
+The frozen sample of `r n_set` polygons was defined by intersecting the survey record with the LidarBC point cloud index. That index is a footprint layer, and its footprints claim ground the delivered point clouds do not contain. Reading the clouds themselves shows that `r n_struct` of the `r n_set` polygons hold lidar returns and `r n_dropped_struct` hold none at all, a result confirmed by reading every one of the empty polygons in full rather than by sampling (@tbl-coverage).
+
+The loss is not concentrated in one agent. It falls `r n_drop_iab` to `r n_drop_ibb` between adelgid and bark beetle, so the class ratio moves from `r set_imbalance` to 1 to `r struct_imbalance` to 1 and the sample available to the structural arm becomes `r n_struct_iab` adelgid against `r n_struct_ibb` bark beetle. Every empty polygon was matched to a `r drop_year` acquisition; the later campaigns are covered without exception.
+
+```{r}
+#| label: tbl-coverage
+#| tbl-cap: "Polygons of the frozen sample that carry lidar returns, against those the tile index claimed but the point clouds do not cover."
+cov_tab <- data.frame(
+  Class = c("Balsam woolly adelgid", "Western balsam bark beetle", "Total"),
+  `Frozen sample` = c(n_set_iab, n_set_ibb, n_set),
+  `With returns` = c(n_struct_iab, n_struct_ibb, n_struct),
+  `No returns` = c(n_drop_iab, n_drop_ibb, n_dropped_struct),
+  check.names = FALSE)
+fmt_tbl(cov_tab)
+```
+
+## Predictor sets
+
+All three predictor families are built and none has a missing value (@tbl-predictors). The optical set summarises a median composite of `r opt_scenes_txt` Sentinel-2 scenes, of which `r opt_corr_txt` carried enough valid pixels over the sample to support the per-scene topographic correction. The radar set summarises `r rad_scenes_txt` Sentinel-1 scenes, `r rad_asc` ascending and `r rad_desc` descending. The structural set draws on `r n_tiles_used` lidar tiles holding `r tile_pts_txt` returns, `r tile_gb` GB as delivered.
+
+Layover and shadow cost almost nothing at these viewing geometries. The retained fraction of each polygon after masking runs from `r rad_ret_min` to 1.000 with a median of `r rad_ret_med`, so the reduction the method promises to report is real but negligible, and no polygon was lost to it.
+
+```{r}
+#| label: tbl-predictors
+#| tbl-cap: "The three predictor families as built, with the imagery and point cloud volumes behind them."
+pred_tab <- data.frame(
+  Family = c("Spectral", "Radar", "Structural"),
+  Source = c("Sentinel-2 L2A", "Sentinel-1 GRD", "LidarBC point clouds"),
+  Polygons = c(nrow(opt), nrow(rad), nrow(str_tab)),
+  Variables = c(36L, 8L, 14L),
+  Observations = c(paste(format(opt_scenes, big.mark = ","), "scenes"),
+                   paste(format(rad_scenes, big.mark = ","), "scenes"),
+                   paste(n_tiles_used, "tiles")))
+fmt_tbl(pred_tab)
+```
+
+## Terrain correction
+
+Over mountainous ground the uncorrected radar product is very largely a picture of the terrain rather than of the canopy. Across the sample the correlation between backscatter and the slope in the radar range direction, which is the geometry that governs the scattering area, is `r flat_r_sigma` before radiometric flattening and `r flat_r_gamma` after it, while the spread between polygons falls from `r flat_sd_sigma` dB to `r flat_sd_gamma` dB (@tbl-flattening). Rather more than half of the between-polygon variance in the uncorrected product is therefore geometry, and the correction removes it.
+
+Flattening does not neutralise terrain entirely, and the residue runs in a direction worth stating. Uncorrected backscatter carries no association with slope itself, `r flat_r_sigma_slope`, because slopes tilted toward and away from the sensor cancel when aspect is not held fixed. The flattened product carries `r flat_r_gamma_slope`. This is a property of the volumetric model rather than an error in its application: the tangent ratio penalises a slope tilted toward the radar more than it rewards one tilted away, so the net effect grows with steepness whatever the aspect. Terrain is accordingly carried as a covariate in every model, and it is doing work rather than serving as insurance.
+
+```{r}
+#| label: tbl-flattening
+#| tbl-cap: "Association between Sentinel-1 backscatter and terrain geometry, before and after radiometric terrain flattening."
+flat_tab <- data.frame(
+  Quantity = c("Correlation with range slope",
+               "Correlation with slope",
+               "Between-polygon standard deviation (dB)"),
+  `Uncorrected` = c(flat_r_sigma, flat_r_sigma_slope, flat_sd_sigma),
+  `Flattened` = c(flat_r_gamma, flat_r_gamma_slope, flat_sd_gamma),
+  check.names = FALSE)
+fmt_tbl(flat_tab)
+```
+
+## Point density
+
+The point cloud index advertises `r adv_dens` points per square metre for every tile in the province. The delivered density over this sample runs from `r dens_tile_min` to `r dens_tile_max`, with a median of `r dens_tile_med`, and it is stratified by acquisition (@tbl-density). Because every structural metric responds to density, and because the campaigns are unevenly distributed across the sample, a model given the metrics as delivered could separate the agents by reading which aircraft flew them.
+
+Thinning to a common density is the control for that, and it is a partial control rather than a complete one, because thinning can discard points but cannot create them. Of the `r n_struct` polygons with returns, `r n_at_target` reach the `r target_dens` points per square metre target and `r n_below_target` fall short, `r n_below_four` of them below four and `r n_below_two` below two. The achieved density is therefore bimodal rather than common.
+
+That shortfall reaches the metrics. Gap fraction correlates with achieved density at `r gap_dens_r` across the polygons with returns, because the rule that an empty canopy cell marks an opening holds where a one metre cell expects several returns and fails where it expects less than one, in which case an empty cell records only that no pulse was fired there. The polygons carrying the highest gap fractions are all in the sparse tail. An inclusion floor on achieved density is therefore required before the control family can be trusted, and the threshold belongs in the pre-registration rather than here.
+
+```{r}
+#| label: tbl-density
+#| tbl-cap: "Delivered point density by acquisition year against the density advertised for every tile, and the density achieved after thinning."
+fmt_tbl(dens_tab)
+```
 
 ## Model comparison
 
@@ -778,11 +948,31 @@ fmt_tbl(secondary)
 
 # Discussion and conclusions
 
-[PENDING. Interpretation of the model comparison, in relation to the spectral attribution failure reported by @Campbell_2023 and the commission-error reduction reported by @Jones_2015, closing with what the result implies for verification of aerial overview survey attributions in coastal British Columbia.]
+This study asks whether structural and radar predictors separate balsam woolly adelgid from western balsam bark beetle damage in a single host, where colour alone has been shown to struggle. That question is not answered here. The predictors are built and the design is fixed, and the comparison itself waits behind the pre-registration gate, deliberately, because a sample this small offers many ways to reach a flattering answer and the guard against them is to fix the analysis before seeing it. What the construction did establish is worth reporting in its own right, because two of the findings bear on any study that proposes to use an open lidar archive with survey polygons, and both were invisible until the point clouds themselves were read.
+
+## Archive reliability
+
+The most consequential result is that a coverage index and a coverage guarantee are different things. The LidarBC point cloud index is a footprint layer, and testing the delivered clouds against it shows `r n_dropped_struct` of `r n_set` polygons standing on ground the index claims and the data do not occupy. The footprints are not wrong about which tiles exist; they are wrong about where those tiles hold returns, and a polygon can intersect a footprint while lying entirely in the part of it that was never flown or never delivered.
+
+This matters more than a lost twelfth of a sample. The same index defined the sample, and the same index supported the province-wide screen that fixed this study's scope, so a design was built on a layer that overstates what can be measured. The direction of that error is at least benign for the scope decision, since overstated coverage can only mean fewer polygons genuinely carry lidar, and the finding that no moderate-or-worse adelgid polygon falls under lidar in British Columbia is if anything firmer than when it was made. It is not benign for sample size, and it would not be benign for a study that reported coverage statistics from the index without opening a file. The practical lesson is narrow and cheap to apply: verify coverage against the point clouds, polygon by polygon, before treating an index intersection as data in hand.
+
+## Density stratification
+
+The second finding is that an archive assembled from many acquisitions is not one instrument. Every tile in this index is advertised at `r adv_dens` points per square metre. The delivered density ranges from `r dens_tile_min` to `r dens_tile_max`, a factor of more than four hundred, and it rises with acquisition year, so the campaigns that flew most of this sample are also the sparsest. Since every canopy metric responds to sampling density, an unthinned analysis would offer a classifier the aircraft as a predictor, and where campaign is even partly associated with agent that is a route to a confident and meaningless result.
+
+Thinning to a common density is the obvious control and it is only a partial one, because it can discard points and cannot create them. `r n_below_target` of the `r n_struct` polygons never reach the target, and the consequence surfaces in exactly the metric where it should be expected: gap fraction correlates with achieved density at `r gap_dens_r`. The rule that an empty canopy cell marks an opening is sound where a cell expects several returns and false where it expects fewer than one, in which case the cell records the pulse spacing rather than the canopy. A study using a heterogeneous archive therefore needs a density floor as an inclusion criterion, not merely a thinning step, and the floor should be set by what the metric definitions require rather than by what preserves sample size.
+
+## Terrain and radar
+
+The radar result is a confirmation rather than a discovery, but it is a quantified one. Over this terrain the uncorrected product is very largely a description of the hillside: `r flat_r_sigma` correlation with the slope in the range direction, falling to `r flat_r_gamma` after radiometric flattening, with between-polygon spread contracting from `r flat_sd_sigma` to `r flat_sd_gamma` dB. Any study that puts Sentinel-1 backscatter into a classifier over mountainous ground without flattening is offering the model topography and calling it canopy condition.
+
+The residue is the more useful detail. Flattening leaves a negative association with slope, `r flat_r_gamma_slope`, where none existed before, which follows from the convexity of the volumetric model rather than from any error in applying it, and it is the reason terrain remains a covariate here rather than being treated as solved.
 
 ## Limitations
 
 The defining limitation is the severity of the sample, and it follows from data availability rather than from choice. No adelgid polygon rated moderate or worse in British Columbia falls under lidar coverage at any useful temporal offset, so a study with a structural arm is necessarily a study of trace and light damage. The analysis is therefore concentrated in the damage classes where any spectral or structural signal is weakest, and a null result would be the expected outcome of the severity distribution as much as a statement about the sensors.
+
+The coverage and density findings above are limitations as well as results. The structural arm rests on `r n_struct` polygons rather than `r n_set`, and the polygons that remain are not a random subset: all of the losses fall in one acquisition year, so the surviving sample is shifted towards the later and denser campaigns. The density floor that the control family requires would shift it further in the same direction. Neither shift is towards the damage classes of interest, and both narrow the ground over which any result can be claimed to hold.
 
 Other limitations apply irrespective of the result. The labels are sketch-mapped from an aircraft and their spatial accuracy is acknowledged by the custodian to be variable, so polygon boundaries are approximate and some damage is missed entirely. That concentration may fall below the detection floor of moderate-resolution optical sensing altogether: @Ye_2021 report that their framework detected mountain pine beetle only where red-stage mortality occupied at least 56 percent of a Landsat pixel, and spruce beetle only above 55 percent grey-stage occupancy. A trace-rated polygon will rarely approach those fractions, so a null result for the spectral baseline would be consistent with the severity distribution rather than with the agents being spectrally inseparable, and the two explanations cannot be distinguished with these labels alone. Agent attribution in the source data is the surveyor's judgement from the air and is not independently verified on the ground, so the models can at best reproduce that judgement and any systematic error in it propagates into the results. Field confirmation addresses this only partly, because the diagnostic signs of adelgid infestation, the woolly wax masses and stem gout, occur on living and declining trees and are lost from those long dead.
 
@@ -791,6 +981,18 @@ Restricting the sample to Vancouver Island buys internal validity at the price o
 ## Detection and attribution
 
 This study evaluates attribution rather than detection, and the distinction is maintained throughout. Establishing that a canopy has changed is a different problem from identifying the agent responsible, and a model can perform well at the first while failing the second [@Campbell_2023]. Accuracy figures are therefore reported with their support, their class balance and their validation design.
+
+## Conclusions
+
+Three conclusions can be drawn now, and the one the study exists for cannot.
+
+A multi-sensor predictor base for agent attribution at survey-polygon support can be assembled entirely from open data, and this one has been: `r opt_scenes_txt` optical scenes, `r rad_scenes_txt` radar scenes and `r tile_pts_txt` lidar returns reduced to three predictor families over `r n_struct` polygons, with every step recomputable from the code in this document.
+
+Open lidar archives should be treated as a collection of surveys rather than as a survey. Coverage must be verified against the point clouds and not against the index, and density must be equalised and then floored, because the delivered product varies by more than two orders of magnitude within a single advertised specification and varies systematically with acquisition.
+
+Radar over mountainous terrain requires radiometric flattening before it can be interpreted as anything other than topography, and flattening leaves a residual association with steepness that keeps terrain in the model as a covariate.
+
+Whether the agents separate, and whether structure and radar add anything to colour in separating them, remains open. The predictors are built and the design is fixed; the analysis is registered before it is run, and reported whichever way it falls.
 
 # Analysis pipeline
 
@@ -1713,6 +1915,83 @@ local({
     Minimum = round(vapply(v, function(k) min(r[[paste0(k, "_mean")]]), 0), 2),
     Median = round(vapply(v, function(k) median(r[[paste0(k, "_mean")]]), 0), 2),
     Maximum = round(vapply(v, function(k) max(r[[paste0(k, "_mean")]]), 0), 2)))
+})
+```
+
+### Flattening check
+
+Terrain flattening is asserted to work by every paper that applies it, so it is measured here rather than assumed. The block compares the corrected backscatter against the uncorrected product over the sample, on the geometry that drives the correction, which is the slope in the radar range direction rather than the slope itself.
+
+```{r}
+#| label: pipe-radar-check
+#| echo: true
+#| output: false
+flat_path <- file.path(derived, "radar-flattening-check.csv")
+
+if (!file.exists(flat_path)) local({
+  library(rgee)
+  a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+  geom <- sf::st_transform(sf::st_geometry(a), BC_ALBERS)
+  polys <- sf::st_sf(poly_id = sprintf("P%03d", seq_len(nrow(a))),
+                     geometry = sf::st_transform(
+                       sf::st_buffer(geom, -BUFFER_M), 4326))
+  rm(a)
+  ee_Initialize(project = EE_PROJECT, quiet = TRUE)
+  fc <- sf_as_ee(polys)
+  region <- sf_as_ee(sf::st_transform(sf::st_union(geom), 4326))
+  dem <- ee$ImageCollection("COPERNICUS/DEM/GLO30")$select("DEM")$mosaic()$
+    setDefaultProjection("EPSG:3857", NULL, 30)
+  ninety <- ee$Image$constant(90)$multiply(pi / 180)
+
+  # The same correction as the radar block, but keeping sigma0 alongside gamma0
+  # and exporting the geometry, so the comparison is like for like.
+  both <- function(img) {
+    scene <- img$geometry()
+    proj <- img$select("VV")$projection()
+    heading <- ee$Terrain$aspect(img$select("angle"))$
+      reduceRegion(ee$Reducer$mean(), scene, 1000, maxPixels = 1e9,
+                   bestEffort = TRUE)$get("aspect")
+    sigma0_pow <- ee$Image$constant(10)$pow(img$select("VV")$divide(10))
+    theta_i <- img$select("angle")$multiply(pi / 180)$clip(scene)
+    phi_i <- ee$Image$constant(heading)$multiply(pi / 180)
+    alpha_s <- ee$Terrain$slope(dem)$select("slope")$multiply(pi / 180)$
+      setDefaultProjection(proj)$clip(scene)
+    phi_s <- ee$Terrain$aspect(dem)$select("aspect")$multiply(pi / 180)$
+      setDefaultProjection(proj)$clip(scene)
+    alpha_r <- alpha_s$tan()$multiply(phi_i$subtract(phi_s)$cos())$atan()
+    gamma0 <- sigma0_pow$divide(theta_i$cos())
+    scf <- ninety$subtract(theta_i)$add(alpha_r)$tan()$
+      divide(ninety$subtract(theta_i)$tan())
+    flat <- ee$Image$constant(10)$multiply(gamma0$divide(scf)$log10())$
+      rename("VV_flat")
+    valid <- alpha_r$lt(theta_i)$
+      And(alpha_r$gt(ninety$subtract(theta_i)$multiply(-1)))
+    flat$addBands(img$select("VV")$rename("VV_sigma0"))$
+      addBands(alpha_r$multiply(180 / pi)$rename("alpha_r_deg"))$
+      addBands(alpha_s$multiply(180 / pi)$rename("slope_deg"))$
+      updateMask(valid)$updateMask(flat$gt(-30))$
+      clip(scene$buffer(-1000, 100))$
+      copyProperties(img, list("system:time_start"))
+  }
+
+  # One orbit pass and a bounded stack: the question is whether the correction
+  # removes the geometry, which does not need the whole archive to answer.
+  s1 <- ee$ImageCollection("COPERNICUS/S1_GRD")$
+    filterBounds(region)$filterDate(S2_START, S2_END)$
+    filter(ee$Filter$eq("instrumentMode", "IW"))$
+    filter(ee$Filter$eq("resolution_meters", 10))$
+    filter(ee$Filter$listContains("transmitterReceiverPolarisation", "VV"))$
+    filter(ee$Filter$listContains("transmitterReceiverPolarisation", "VH"))$
+    filter(ee$Filter$eq("orbitProperties_pass", "DESCENDING"))$
+    limit(60)
+
+  got <- s1$map(ee_utils_pyfunc(both))$mean()$
+    reduceRegions(collection = fc, reducer = ee$Reducer$mean(),
+                  scale = SUMM_SCALE, tileScale = 4L)$getInfo()
+  d <- do.call(rbind, lapply(got$features, function(f)
+    as.data.frame(f$properties, stringsAsFactors = FALSE)))
+  d <- d[stats::complete.cases(d[, c("VV_flat", "VV_sigma0", "alpha_r_deg")]), ]
+  write.csv(d, flat_path, row.names = FALSE)
 })
 ```
 
