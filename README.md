@@ -91,6 +91,23 @@ Lidar tiles and survey polygons over northern Vancouver Island. Grey squares are
 
 ## Table 6
 
+Effect of statistical outlier removal on the structural metrics, measured on the three densest small polygons. Overstorey metrics are unmoved; the lower-profile metrics shift, and almost everything the filter removes lies inside the canopy rather than above it.
+
+| Quantity | As delivered | After the filter |
+|---|---|---|
+| Raw maximum height (m) | 64.31, 195.06, 109.69 | 64.31, 114.1, 62.32 |
+| 99th percentile height (m) | 47.42, 51.81, 44.69 | 47.47, 51.85, 44.73 |
+| 95th percentile height (m) | 38.93, 46.44, 40.15 | 39.02, 46.51, 40.21 |
+| Canopy permeability rh10 (m) | 3.97, 5.16, 10.79 | 4.05, 5.3, 11.62 |
+| Midstorey return fraction | 0.2702, 0.1261, 0.0672 | 0.2675, 0.1228, 0.0614 |
+| Rumple | 4.224, 4.517, 3.347 | 4.215, 4.489, 3.334 |
+| Returns flagged |  | 115,808, 236,740, 96,774 |
+| Of those, above the 95th percentile |  | 968, 761, 205 |
+| Of those, inside the canopy |  | 94,226, 205,479, 84,706 |
+
+
+## Table 7
+
 Verification of the balanced accuracy implementation against cases with analytically known values.
 
 | Case | Expected | Observed | Agrees |
@@ -101,7 +118,7 @@ Verification of the balanced accuracy implementation against cases with analytic
 | Imbalanced, all majority (overall accuracy 0.75) | 0.5 | 0.5 | true |
 
 
-## Table 7
+## Table 8
 
 Polygons of the frozen sample that carry lidar returns, against those the tile index claimed but the point clouds do not cover.
 
@@ -112,7 +129,7 @@ Polygons of the frozen sample that carry lidar returns, against those the tile i
 | Total | 84 | 72 | 12 |
 
 
-## Table 8
+## Table 9
 
 The three predictor families as built, with the imagery and point cloud volumes behind them.
 
@@ -123,7 +140,7 @@ The three predictor families as built, with the imagery and point cloud volumes 
 | Structural | LidarBC point clouds | 72 | 14 | 121 tiles |
 
 
-## Table 9
+## Table 10
 
 Association between Sentinel-1 backscatter and terrain geometry, before and after radiometric terrain flattening.
 
@@ -134,7 +151,7 @@ Association between Sentinel-1 backscatter and terrain geometry, before and afte
 | Between-polygon standard deviation (dB) | 2.64 | 1.01 |
 
 
-## Table 10
+## Table 11
 
 Delivered point density by acquisition year against the density advertised for every tile, and the density achieved after thinning.
 
@@ -146,7 +163,7 @@ Delivered point density by acquisition year against the density advertised for e
 | 2,025 | 5 | 8 | 70.6 | 65.6 to 72.0 | 2.76 |
 
 
-## Table 11
+## Table 12
 
 Separation of the two damage agents by predictor set, under spatially blocked cross-validation.
 
@@ -157,7 +174,7 @@ Separation of the two damage agents by predictor set, under spatially blocked cr
 | Spectral, structure and radar | pending | pending | pending |
 
 
-## Table 12
+## Table 13
 
 Per-class performance of each model, with support.
 
@@ -168,7 +185,7 @@ Per-class performance of each model, with support.
 | Spectral, structure and radar | pending | pending | pending |
 
 
-## Table 13
+## Table 14
 
 Pipeline test on synthetic data with known truth. The null regime must return balanced accuracy near one half and differences near zero; the planted regime must recover the structural signal.
 

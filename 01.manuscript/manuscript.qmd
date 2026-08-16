@@ -678,7 +678,45 @@ Metrics therefore fall into four families, each tied to a prediction. The first 
 
 The third family is a control rather than a hypothesis. Both agents thin the canopy, so if density and openness alone separate them the structural result concerns damage intensity rather than damage geometry, and it is reported in those terms.
 
+Statistical outlier removal is not applied, and because it is standard practice the deviation was measured rather than argued. Both arms were run through one code path on the three densest small polygons in the sample, where the even-density assumption the filter rests on comes closest to being met (@tbl-sor). Against the canopy metrics the filter changes almost nothing: the 99th percentile of height moves by 0.04 to 0.05 m, the 95th by at most 0.07 m, and rumple and canopy height model dispersion by under half a percent. It does what it is advertised to do at the extreme, pulling a raw maximum of 195.1 m down to 114.1 m on one polygon, but the metric set never uses the raw maximum for that reason and takes the 99th percentile instead.
+
+The filter is declined because of what it removes and where. Of the 115,808 to 236,740 returns it flags per polygon, between 205 and 968 lie above the 95th percentile of height, and 84,706 to 205,479 lie inside the canopy between 2 m and that percentile. It is therefore deleting canopy returns rather than points floating above the canopy, by a factor of roughly a hundred to one, which follows from a global neighbour-distance statistic applied to a cloud whose delivered density spans two orders of magnitude. The consequence falls on exactly the variables the hypothesis now rests on: canopy permeability rises by up to 0.8 m and the midstorey return fraction falls by up to 8.6 percent, both in the direction of erasing the penetration signal that @Boucher_2020 identified, while every overstorey metric is unmoved. Applying the filter would cost 13 hours of computation to alter the lower-profile variables in a direction that cannot be verified without ground measurement, so it is not applied and this paragraph is the record of that choice.
+
 Two limits on this design are stated here rather than discovered later. Airborne lidar at any operational density cannot resolve gout, which deforms branches at the scale of centimetres; @Atkins_2020 characterised crown architecture at that scale with terrestrial lidar, not airborne. The roughness family therefore tests metre-scale crown surface irregularity and is a coarse proxy for the deformation mechanism, not a measurement of it. And the structural hypothesis has published evidence against it: @Choi_2023 examined six moderate-severity agents with repeat lidar and found that the impact of press disturbances on canopy structure "could not be clearly detected, likely because of compensatory growth", while pulse disturbances were more readily apparent. Adelgid damage is a press disturbance and bark beetle mortality is closer to a pulse, so the design is being run against a documented expectation of a weak or absent structural signal for the target class.
+
+```{r}
+#| label: tbl-sor
+#| tbl-cap: "Effect of statistical outlier removal on the structural metrics, measured on the three densest small polygons. Overstorey metrics are unmoved; the lower-profile metrics shift, and almost everything the filter removes lies inside the canopy rather than above it."
+local({
+  d <- read.csv(file.path(derived, "sor-check.csv"), stringsAsFactors = FALSE)
+  w <- function(v, a) d[[v]][d$arm == a]
+  fmt_tbl(data.frame(
+    Quantity = c("Raw maximum height (m)", "99th percentile height (m)",
+                 "95th percentile height (m)", "Canopy permeability rh10 (m)",
+                 "Midstorey return fraction", "Rumple",
+                 "Returns flagged", "Of those, above the 95th percentile",
+                 "Of those, inside the canopy"),
+    `As delivered` = c(
+      paste(w("z_max", "as delivered"), collapse = ", "),
+      paste(w("ztop_p99", "as delivered"), collapse = ", "),
+      paste(w("zq95", "as delivered"), collapse = ", "),
+      paste(w("rh10", "as delivered"), collapse = ", "),
+      paste(w("p_mid", "as delivered"), collapse = ", "),
+      paste(w("rumple", "as delivered"), collapse = ", "), "", "", ""),
+    `After the filter` = c(
+      paste(w("z_max", "after SOR"), collapse = ", "),
+      paste(w("ztop_p99", "after SOR"), collapse = ", "),
+      paste(w("zq95", "after SOR"), collapse = ", "),
+      paste(w("rh10", "after SOR"), collapse = ", "),
+      paste(w("p_mid", "after SOR"), collapse = ", "),
+      paste(w("rumple", "after SOR"), collapse = ", "),
+      paste(format(w("flagged_n", "after SOR"), big.mark = ","), collapse = ", "),
+      paste(w("flagged_above_zq95", "after SOR"), collapse = ", "),
+      paste(format(w("flagged_in_canopy", "after SOR"), big.mark = ","),
+            collapse = ", ")),
+    check.names = FALSE))
+})
+```
 
 All three families are summarised to the survey polygon, which is the unit of analysis. Polygons are eroded by an inward buffer before summarisation, because sketch-mapped boundaries are approximate and an unbuffered polygon edge will include unaffected canopy. Within the eroded polygon each predictor is reduced to its mean and its dispersion, so that a heterogeneous polygon is not represented solely by a central value. Polygons too small to survive erosion are excluded and counted.
 
@@ -2485,6 +2523,98 @@ local({
     Minimum = round(vapply(names(fam), function(k) min(s[[k]], na.rm = TRUE), 0), 3),
     Median = round(vapply(names(fam), function(k) median(s[[k]], na.rm = TRUE), 0), 3),
     Maximum = round(vapply(names(fam), function(k) max(s[[k]], na.rm = TRUE), 0), 3)))
+})
+```
+
+### Noise filter check
+
+Statistical outlier removal is standard practice and is applied in the lidar-forestry workflow this study otherwise follows, so dropping it is a deviation that has to be justified by measurement rather than by argument. The block below runs both arms through one code path on the densest small polygons in the sample, where the even-density assumption the filter rests on is closest to being met, and reports what it changes.
+
+```{r}
+#| label: pipe-sor-check
+#| echo: true
+#| output: false
+sor_path <- file.path(derived, "sor-check.csv")
+
+if (!file.exists(sor_path)) local({
+  library(lidR)
+  a <- sf::st_read(file.path(derived, "analysis-set.geojson"), quiet = TRUE)
+  poly_id <- sprintf("P%03d", seq_len(nrow(a)))
+  eroded <- sf::st_buffer(sf::st_transform(sf::st_geometry(a), BC_ALBERS),
+                          -BUFFER_M)
+  rm(a)
+  map <- read.csv(tile_map_path, stringsAsFactors = FALSE)
+  st <- read.csv(struct_path, stringsAsFactors = FALSE)
+
+  # Densest first, but bounded in area: the filter's assumption is about
+  # density, and a 350 ha polygon would put 150 million points in memory beside
+  # a running rebuild for no additional evidence.
+  cand <- st[st$area_ha < 30, ]
+  cand <- cand[order(-cand$dens_raw), ][seq_len(min(3, nrow(cand))), ]
+
+  rows <- lapply(cand$poly_id, function(pid) {
+    i <- match(pid, poly_id)
+    tl <- map[map$poly_id == pid, ]
+    paths <- file.path(lidar_dir, tl$year, tl$filename)
+    grd <- list(); veg <- list()
+    for (k in seq_along(paths)) {
+      hdr <- lidR::readLASheader(paths[k])
+      pg <- sf::st_transform(eroded[i], sf::st_crs(hdr))
+      bb <- sf::st_bbox(pg)
+      las <- tryCatch(lidR::readLAS(
+        paths[k], select = "xyzrc",
+        filter = sprintf("-keep_xy %f %f %f %f",
+                         bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"])),
+        error = function(e) NULL)
+      if (is.null(las) || lidR::is.empty(las)) next
+      grd[[length(grd) + 1L]] <- lidR::filter_poi(las, Classification == 2L)
+      veg[[length(veg) + 1L]] <- las
+    }
+    if (!length(veg)) return(NULL)
+    g <- if (length(grd) == 1) grd[[1]] else do.call(rbind, grd)
+    v <- if (length(veg) == 1) veg[[1]] else do.call(rbind, veg)
+    pg <- sf::st_transform(eroded[i], sf::st_crs(v))
+    v <- lidR::clip_roi(v, pg)
+    dtm <- lidR::rasterize_terrain(g, res = DTM_RES_FINE,
+                                   algorithm = lidR::tin())
+    v <- lidR::normalize_height(v, dtm)
+
+    # Both arms diverge here and nowhere else, so any difference below is the
+    # filter and not a second change riding along with it.
+    arm <- function(las, label) {
+      z <- las@data$Z; z <- z[is.finite(z) & z >= CANOPY_MIN_H]
+      zall <- las@data$Z; zall <- zall[is.finite(zall) & zall >= 0.5]
+      chm <- lidR::rasterize_canopy(las, res = CHM_RES,
+                                    algorithm = lidR::dsmtin(max_edge = 8))
+      vv <- terra::values(chm, mat = FALSE); vv <- vv[!is.na(vv)]
+      data.frame(poly_id = pid, arm = label, n_points = nrow(las@data),
+                 z_max = round(max(z), 2),
+                 ztop_p99 = round(stats::quantile(z, .99, names = FALSE), 2),
+                 zq95 = round(stats::quantile(z, .95, names = FALSE), 2),
+                 zq50 = round(stats::quantile(z, .50, names = FALSE), 2),
+                 rh10 = round(stats::quantile(zall, .10, names = FALSE), 2),
+                 p_mid = round(sum(zall >= UNDER_TOP & zall < MID_TOP) /
+                                 length(zall), 4),
+                 rumple = round(lidR::rumple_index(chm), 3),
+                 chm_sd = round(stats::sd(vv), 3),
+                 stringsAsFactors = FALSE)
+    }
+    keep <- arm(v, "as delivered")
+    vs <- lidR::classify_noise(v, lidR::sor(k = 10, m = 3))
+    flagged <- vs@data$Z[vs@data$Classification == LASNOISE]
+    vs <- lidR::filter_poi(vs, Classification != LASNOISE)
+    filt <- arm(vs, "after SOR")
+    # What the filter actually removed, by height, which is the crux: high
+    # outliers are noise, returns inside the canopy are signal.
+    filt$flagged_n <- length(flagged)
+    filt$flagged_above_zq95 <- sum(flagged > keep$zq95)
+    filt$flagged_in_canopy <- sum(flagged >= CANOPY_MIN_H & flagged <= keep$zq95)
+    keep$flagged_n <- NA_integer_
+    keep$flagged_above_zq95 <- NA_integer_
+    keep$flagged_in_canopy <- NA_integer_
+    rbind(keep, filt)
+  })
+  write.csv(do.call(rbind, rows), sor_path, row.names = FALSE)
 })
 ```
 
