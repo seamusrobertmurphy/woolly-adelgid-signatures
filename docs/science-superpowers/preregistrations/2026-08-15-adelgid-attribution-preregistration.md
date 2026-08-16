@@ -190,3 +190,24 @@ impact of press disturbances "could not be clearly detected, likely because of
 compensatory growth". Adelgid damage is a press disturbance. This amendment improves the
 chance of finding a signal if one exists; it does not make a null less likely to be true,
 and a null remains the outcome to be reported plainly if it is what the data give.
+
+### Sample restated, 2026-08-16
+
+Amendment 1 raised the common density from 8 to 16 points per square metre and stated
+that the count under inclusion criterion 3 would be restated once the rebuild finished.
+It has, and the count moves **up**, not down: **69 polygons, 41 adelgid and 28 bark
+beetle, imbalance 1.46 to 1**, against 61 under the previous build.
+
+Raising the target lifted achieved density across the sample, median 15.19 against 7.79,
+so eight polygons that fell below the 4 points per square metre floor now clear it. Three
+remain below and are excluded: P034 at 0.55, P005 at 2.40 and P040 at 3.01. The floor
+itself is unchanged at 4, and the pre-registered sensitivity restricted to polygons at
+target covers the 40 polygons at or above 15 points per square metre, which are balanced
+20 to 20.
+
+Blocking and the pipeline test were rebuilt on the 69 before any model was fitted. Ten
+blocks, five folds, two blocks per fold, 13 to 14 polygons per fold. The pipeline test
+passes both regimes on that structure: balanced accuracy 0.49, 0.47 and 0.48 under the
+null with paired differences of -0.027 and -0.013, and 0.45 against 0.95 under the
+planted signal, a difference of 0.51. No outcome value had been joined to any predictor
+at the time of this restatement.
